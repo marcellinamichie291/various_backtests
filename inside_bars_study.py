@@ -3,7 +3,7 @@ import keys
 from binance import Client
 from pathlib import Path
 from decimal import Decimal, getcontext
-from pushbullet import Pushbullet
+# from pushbullet import Pushbullet
 from typing import Union, List, Tuple, Dict, Set, Optional, Any
 import itertools as it
 import plotly.graph_objects as go
@@ -19,7 +19,7 @@ pd.set_option('display.precision', 4)
 
 # CONSTANTS
 client = Client(keys.bPkey, keys.bSkey)
-pb = Pushbullet('o.H4ZkitbaJgqx9vxo5kL2MMwnlANcloxT')
+# pb = Pushbullet('o.H4ZkitbaJgqx9vxo5kL2MMwnlANcloxT')
 ctx = getcontext()
 ctx.prec = 12
 ohlc_path = Path("/mnt/pi_2/ohlc_binance_1m")
@@ -29,6 +29,7 @@ not_pairs = ['GBPUSDT', 'AUDUSDT', 'BUSDUSDT', 'EURUSDT', 'TUSDUSDT',
 
 
 # FUNCTIONS
+
 def get_pairs(quote: str = 'USDT', market: str = 'SPOT') -> List[str]:
     """returns all active pairs for a given quote currency. possible values for
     quote are USDT, BTC, BNB etc. possible values for market are SPOT or CROSS"""
@@ -54,8 +55,23 @@ def get_pairs(quote: str = 'USDT', market: str = 'SPOT') -> List[str]:
 
 
 def get_ohlc(pair):
-    pair_path = ohlc_path / f"{pair}.pkl"
-    return pd.read_pickle(pair_path)
+    try:
+        pair_path = ohlc_path / f"{pair}.pkl"
+        return pd.read_pickle(pair_path)
+    except FileNotFoundError:
+        klines = client.get_historical_klines(symbol='BTCUSDT',
+                                              interval=Client.KLINE_INTERVAL_1MINUTE,
+                                              start_str="1 year ago UTC")
+        cols = ['timestamp', 'open', 'high', 'low', 'close', 'base vol', 'close time',
+                'volume', 'num trades', 'taker buy base vol', 'taker buy quote vol', 'ignore']
+        df = pd.DataFrame(klines, columns=cols)
+        df['timestamp'] = df['timestamp'] * 1000000
+        df = df.astype(float)
+        df['timestamp'] = pd.to_datetime(df['timestamp'])
+        df.drop(['base vol', 'close time', 'num trades', 'taker buy base vol',
+                 'taker buy quote vol', 'ignore'], axis=1, inplace=True)
+
+        return df
 
 
 def resample(df: pd.DataFrame, timeframe: str) -> pd.DataFrame:
@@ -96,14 +112,6 @@ def hidden_flow(df, lookback):
 
     df['hidden_flow_hi'] = df.hidden_flow < df.hf_upper
     df['hidden_flow_lo'] = df.hidden_flow > df.hf_lower
-
-    # top score to beat was about 0.75 or something
-    # upper = hf_avg + hf_std <-- tested, failed
-    # upper = hf_avg - hf_std <-- 0.73 - very close
-    # upper = hf_avg + (2*hf_std) <-- tested, failed
-    # upper = hf_avg <-- 0.74
-    # hi = flow > 1 <-- 0.62
-    # upper = avg + std, hf_hi = hf < upper <-- 0.7
 
     return df
 
@@ -510,9 +518,9 @@ def projected_time(counter):
 
 # MAIN
 
-if __name__ == '__main__':
+#TODO when this test is finished, copy the results dataframe to the laptop, change tr_source to 'close', and run it again
 
-    start = time.perf_counter()
+if __name__ == '__main__':
 
     pair = 'BTCUSDT'
 
@@ -539,50 +547,54 @@ if __name__ == '__main__':
 
     df_orig = get_ohlc(pair)
 
+    start = time.perf_counter()
+
     num_tests = (len(timeframes.keys()) * len(z_scores) * len(bars)
                  * len(mults) * len(windows) * len(lookbacks) * len(atr_vals))
     print(f"number of tests: {num_tests}")
 
-    for tf, z, bar, mult, window, lb, atr_val in it.product(timeframes.keys(), z_scores, bars, mults,
-                                                                windows, lookbacks, atr_vals):
-        # print(f"{tf = } {tt = } {z = } {bar = } {mult = } {window = } {lb = } {atr_val = }")
+    for tf in timeframes.keys():
         data = df_orig.copy()
-        # data = hidden_flow(data, 100)
         data = vwma(data, timeframes[tf])
+        # data = hidden_flow(data, 100)
         data = resample(data, tf)
-        df = ib_signals(data, t_type, z, bar, mult, tr_source, window, lb, atr_val)
-        df = test_frac_swing(df)
-        # plot_fractals(data, 1440)
 
-        # long_rs = df.long_pnl_r.loc[df.long_shift]
-        long_rs = df.long_pnl_r.dropna()
-        mean_long = long_rs.mean()
-        med_long = long_rs.median()
-        tot_long = long_rs.sum()
+        for z, bar, mult, window, lb, atr_val in it.product(z_scores, bars, mults,
+                                                                    windows, lookbacks, atr_vals):
+            # print(f"{tf = } {tt = } {z = } {bar = } {mult = } {window = } {lb = } {atr_val = }")
+            df = ib_signals(data, t_type, z, bar, mult, tr_source, window, lb, atr_val)
+            df = test_frac_swing(df)
+            # plot_fractals(data, 1440)
 
-        # short_rs = df.short_pnl_r.loc[df.short_shift]
-        short_rs = df.short_pnl_r.dropna()
-        mean_short = short_rs.mean()
-        med_short = short_rs.median()
-        tot_short = short_rs.sum()
+            # long_rs = df.long_pnl_r.loc[df.long_shift]
+            long_rs = df.long_pnl_r.dropna()
+            mean_long = long_rs.mean()
+            med_long = long_rs.median()
+            tot_long = long_rs.sum()
 
-        all_rs = list(pd.concat([long_rs, short_rs]).sort_index())
-        # print(all_rs)
+            # short_rs = df.short_pnl_r.loc[df.short_shift]
+            short_rs = df.short_pnl_r.dropna()
+            mean_short = short_rs.mean()
+            med_short = short_rs.median()
+            tot_short = short_rs.sum()
 
-        mean_r = (mean_long + mean_short) / 2
-        med_r = (med_long + med_short) / 2
-        tot_r = tot_long + tot_short
+            all_rs = list(pd.concat([long_rs, short_rs]).sort_index())
+            # print(all_rs)
 
-        df_signals = df.loc[(df.long_signal) | (df.short_signal), :]
-        len_1, len_2 = len(df), len(df_signals)
+            mean_r = (mean_long + mean_short) / 2
+            med_r = (med_long + med_short) / 2
+            tot_r = tot_long + tot_short
 
-        results[counter] = {'timeframe': tf, 'type': t_type, 'source': tr_source, 'z_score': z, 'bars': bar, 'mult': mult, 'ema_window': window,
-                            'lookback': lb, 'atr': atr_val, 'num_signals': len_2,
-                            'mean_long_r': mean_long, 'med_long_r': med_long, 'total_long_r': tot_long,
-                            'mean_short_r': mean_short, 'med_short_r': med_short, 'total_short_r': tot_short,
-                            'mean_r': mean_r, 'med_r': med_r, 'total_r': tot_r, 'all_rs': all_rs}
-        counter += 1
-        projected_time(counter)
+            df_signals = df.loc[(df.long_signal) | (df.short_signal), :]
+            len_1, len_2 = len(df), len(df_signals)
+
+            results[counter] = {'timeframe': tf, 'type': t_type, 'source': tr_source, 'z_score': z, 'bars': bar, 'mult': mult, 'ema_window': window,
+                                'lookback': lb, 'atr': atr_val, 'num_signals': len_2,
+                                'mean_long_r': mean_long, 'med_long_r': med_long, 'total_long_r': tot_long,
+                                'mean_short_r': mean_short, 'med_short_r': med_short, 'total_short_r': tot_short,
+                                'mean_r': mean_r, 'med_r': med_r, 'total_r': tot_r, 'all_rs': all_rs}
+            counter += 1
+            projected_time(counter)
 
     results_df = pd.DataFrame.from_dict(results, orient='index')
     results_df.to_pickle('results.pkl')
