@@ -98,14 +98,6 @@ def hidden_flow(df, lookback):
     df['hidden_flow_hi'] = df.hidden_flow < df.hf_upper
     df['hidden_flow_lo'] = df.hidden_flow > df.hf_lower
 
-    # top score to beat was about 0.75 or something
-    # upper = hf_avg + hf_std <-- tested, failed
-    # upper = hf_avg - hf_std <-- 0.73 - very close
-    # upper = hf_avg + (2*hf_std) <-- tested, failed
-    # upper = hf_avg <-- 0.74
-    # hi = flow > 1 <-- 0.62
-    # upper = avg + std, hf_hi = hf < upper <-- 0.7
-
     return df
 
 
@@ -510,6 +502,8 @@ def projected_time(counter):
 
 
 # MAIN
+
+#TODO when the current test finishes, change tr_source to 'close', copy results file to laptop, and run it again
 
 if __name__ == '__main__':
 
