@@ -3,7 +3,7 @@ import keys
 from binance import Client
 from pathlib import Path
 from decimal import Decimal, getcontext
-from pushbullet import Pushbullet
+# from pushbullet import Pushbullet
 from typing import Union, List, Tuple, Dict, Set, Optional, Any
 import itertools as it
 import plotly.graph_objects as go
@@ -87,7 +87,7 @@ def calmar_ratio(series, dd):
 def get_sqn(pnls_r):
     r_exp = stats.mean(pnls_r)
     r_std = stats.stdev(pnls_r)
-    scalar = len(pnls_r) ** 0.5
+    scalar = min(100, len(pnls_r)) ** 0.5
 
     return scalar * r_exp / r_std
 
