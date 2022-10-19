@@ -55,8 +55,20 @@ def get_pairs(quote: str = 'USDT', market: str = 'SPOT') -> List[str]:
 
 
 def get_ohlc(pair):
-    pair_path = ohlc_path / f"{pair}.pkl"
-    return pd.read_pickle(pair_path)
+    try:
+        pair_path = ohlc_path / f"{pair}.pkl"
+        return pd.read_pickle(pair_path)
+    except FileNotFoundError:
+        klines = client.get_historical_klines(pair, Client.KLINE_INTERVAL_1MINUTE, '1 year ago UTC')
+        cols = ['timestamp', 'open', 'high', 'low', 'close', 'base vol', 'close time',
+                'volume', 'num trades', 'taker buy base vol', 'taker buy quote vol', 'ignore']
+        df = pd.DataFrame(klines, columns=cols)
+        df['timestamp'] = df['timestamp'] * 1000000
+        df = df.astype(float)
+        df['timestamp'] = pd.to_datetime(df['timestamp'])
+        df = df.drop(['base vol', 'close time', 'num trades', 'taker buy base vol',
+                 'taker buy quote vol', 'ignore'], axis=1)
+        return df
 
 
 def resample(df: pd.DataFrame, timeframe: str) -> pd.DataFrame:
@@ -122,28 +134,43 @@ def vwma(df, lookback):
     return df
 
 
-def williams_fractals(df, spacing=0):
+def williams_fractals(df, frac_width, atr_spacing=0):
     """calculates williams fractals either on the highs and lows or spaced according to average true range.
     if the spacing value is left at the default 0, no atr spacing will be implemented. if spacing is set to an integer
     above 0, the atr will be calculated with a lookback length equal to the spacing value, and the resulting atr values
     will then be multiplied by one tenth of the spacing value. eg if spacing is set to 5, a 5 period atr series will be
-    calculated, and the fractals will be spaced 0.5*atr from the highs and lows of the ohlc candles"""
+    calculated, and the fractals will be spaced 0.5*atr from the highs and lows of the ohlc candles
+    frac_width determines how many candles are used to decide if the current candle is a local high/low, so a frac_width
+    of five will look at the current candle, the two previous candles, and the two subsequent ones"""
 
-    if spacing:
-        df = atr(df, spacing)
-        mult = spacing / 10
-        df['fractal_high'] = np.where(df.high == df.high.rolling(5, center=True).max(),
-                                      df.high + (mult * df[f'atr-{spacing}']), np.nan)
-        df['fractal_low'] = np.where(df.low == df.low.rolling(5, center=True).min(),
-                                     df.low - (mult * df[f'atr-{spacing}']), np.nan)
+    if atr_spacing:
+        df = atr(df, atr_spacing)
+        mult = atr_spacing / 10
+        df['fractal_high'] = np.where(df.high == df.high.rolling(frac_width, center=True).max(),
+                                      df.high + (mult * df[f'atr-{atr_spacing}']), np.nan)
+        df['fractal_low'] = np.where(df.low == df.low.rolling(frac_width, center=True).min(),
+                                     df.low - (mult * df[f'atr-{atr_spacing}']), np.nan)
     else:
-        df['fractal_high'] = np.where(df.high == df.high.rolling(5, center=True).max(), df.high, np.nan)
-        df['fractal_low'] = np.where(df.low == df.low.rolling(5, center=True).min(), df.low, np.nan)
+        df['fractal_high'] = np.where(df.high == df.high.rolling(frac_width, center=True).max(), df.high, np.nan)
+        df['fractal_low'] = np.where(df.low == df.low.rolling(frac_width, center=True).min(), df.low, np.nan)
 
     df['inval_high'] = df.fractal_high.interpolate('pad')
     df['inval_low'] = df.fractal_low.interpolate('pad')
 
     return df
+
+
+def fractal_density(df, lookback, frac_width):
+    """a way of detecting when price is trending based on how frequently williams fractals are printed, since they are
+    much more common during choppy conditions and spaced further apart during trending conditions.
+    the calculation is simply the total number of fractals (high+low) in a given lookback period divided by the lookback.
+    i could modify it by working out how to normalise the output to a range of 0-1, but for now the range of possible
+    values is from 0 to some number between 0 and 1, since the most fractals you could possibly have in any lookback
+    period is going to be significantly less than the period itself and dependent on the frac_width parameter"""
+
+    df = williams_fractals(df, frac_width)
+
+    return (df.fractal_high.rolling(lookback).count() + df.fractal_low.rolling(lookback).count()) / lookback
 
 
 def inside_bars(df):
@@ -342,7 +369,7 @@ def ib_signals(df, trend_type, z, bars, mult, source, ema_len, ema_lb, atr_val=0
         df = ema_breakout(df, ema_len, ema_len)
 
     df = trend_rate(df, z, bars, mult, source)
-    df = williams_fractals(df, atr_val)
+    df = williams_fractals(df, 5, atr_val)
     df = entry_signals(df)
 
     return df
@@ -503,7 +530,7 @@ def projected_time(counter):
 
 # MAIN
 
-#TODO when the current test finishes, change tr_source to 'close', copy results file to laptop, and run it again
+#TODO already tested vwma as the tr_source, now testing close
 
 if __name__ == '__main__':
 
@@ -512,7 +539,7 @@ if __name__ == '__main__':
     pair = 'BTCUSDT'
 
     t_type = 'trend' # trend type ('trend' or 'breakout')
-    tr_source = 'vwma' # trend rate source ('close' or 'vwma')
+    tr_source = 'close' # trend rate source ('close' or 'vwma')
 
     # timeframes = {'3min': 3, '5min': 5, '10min': 10, '30min': 30}
     timeframes = {'3min': 3}
@@ -538,46 +565,46 @@ if __name__ == '__main__':
                  * len(mults) * len(windows) * len(lookbacks) * len(atr_vals))
     print(f"number of tests: {num_tests}")
 
-    for tf, z, bar, mult, window, lb, atr_val in it.product(timeframes.keys(), z_scores, bars, mults,
-                                                                windows, lookbacks, atr_vals):
-        # print(f"{tf = } {tt = } {z = } {bar = } {mult = } {window = } {lb = } {atr_val = }")
+    for tf in timeframes.keys():
         data = df_orig.copy()
         # data = hidden_flow(data, 100)
         data = vwma(data, timeframes[tf])
         data = resample(data, tf)
-        df = ib_signals(data, t_type, z, bar, mult, tr_source, window, lb, atr_val)
-        df = test_frac_swing(df)
-        # plot_fractals(data, 1440)
+        for z, bar, mult, window, lb, atr_val in it.product(z_scores, bars, mults, windows, lookbacks, atr_vals):
+            # print(f"{tf = } {tt = } {z = } {bar = } {mult = } {window = } {lb = } {atr_val = }")
+            df = ib_signals(data, t_type, z, bar, mult, tr_source, window, lb, atr_val)
+            df = test_frac_swing(df)
+            # plot_fractals(data, 1440)
 
-        # long_rs = df.long_pnl_r.loc[df.long_shift]
-        long_rs = df.long_pnl_r.dropna()
-        mean_long = long_rs.mean()
-        med_long = long_rs.median()
-        tot_long = long_rs.sum()
+            # long_rs = df.long_pnl_r.loc[df.long_shift]
+            long_rs = df.long_pnl_r.dropna()
+            mean_long = long_rs.mean()
+            med_long = long_rs.median()
+            tot_long = long_rs.sum()
 
-        # short_rs = df.short_pnl_r.loc[df.short_shift]
-        short_rs = df.short_pnl_r.dropna()
-        mean_short = short_rs.mean()
-        med_short = short_rs.median()
-        tot_short = short_rs.sum()
+            # short_rs = df.short_pnl_r.loc[df.short_shift]
+            short_rs = df.short_pnl_r.dropna()
+            mean_short = short_rs.mean()
+            med_short = short_rs.median()
+            tot_short = short_rs.sum()
 
-        all_rs = list(pd.concat([long_rs, short_rs]).sort_index())
-        # print(all_rs)
+            all_rs = list(pd.concat([long_rs, short_rs]).sort_index())
+            # print(all_rs)
 
-        mean_r = (mean_long + mean_short) / 2
-        med_r = (med_long + med_short) / 2
-        tot_r = tot_long + tot_short
+            mean_r = (mean_long + mean_short) / 2
+            med_r = (med_long + med_short) / 2
+            tot_r = tot_long + tot_short
 
-        df_signals = df.loc[(df.long_signal) | (df.short_signal), :]
-        len_1, len_2 = len(df), len(df_signals)
+            df_signals = df.loc[(df.long_signal) | (df.short_signal), :]
+            len_1, len_2 = len(df), len(df_signals)
 
-        results[counter] = {'timeframe': tf, 'type': t_type, 'source': tr_source, 'z_score': z, 'bars': bar, 'mult': mult, 'ema_window': window,
-                            'lookback': lb, 'atr': atr_val, 'num_signals': len_2,
-                            'mean_long_r': mean_long, 'med_long_r': med_long, 'total_long_r': tot_long,
-                            'mean_short_r': mean_short, 'med_short_r': med_short, 'total_short_r': tot_short,
-                            'mean_r': mean_r, 'med_r': med_r, 'total_r': tot_r, 'all_rs': all_rs}
-        counter += 1
-        projected_time(counter)
+            results[counter] = {'timeframe': tf, 'type': t_type, 'source': tr_source, 'z_score': z, 'bars': bar, 'mult': mult, 'ema_window': window,
+                                'lookback': lb, 'atr': atr_val, 'num_signals': len_2,
+                                'mean_long_r': mean_long, 'med_long_r': med_long, 'total_long_r': tot_long,
+                                'mean_short_r': mean_short, 'med_short_r': med_short, 'total_short_r': tot_short,
+                                'mean_r': mean_r, 'med_r': med_r, 'total_r': tot_r, 'all_rs': all_rs}
+            counter += 1
+            projected_time(counter)
 
     results_df = pd.DataFrame.from_dict(results, orient='index')
     results_df.to_pickle('results.pkl')

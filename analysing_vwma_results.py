@@ -85,8 +85,23 @@ def calmar_ratio(series, dd):
 
 
 def get_sqn(pnls_r):
+    """takes the average PnL (denominated in R) multiplied by the square root of the number of trades (capped at 100)
+    and divides that by the standard deviation of the PnLs. The idea is that higher average PnL and larger number of
+    trades in the backtest are both good and should increase the score, but higher standard deviation of PnLs is a sign
+    of an unreliable system and should therefore decrease the score"""
     r_exp = stats.mean(pnls_r)
     r_std = stats.stdev(pnls_r)
+    scalar = min(100, len(pnls_r)) ** 0.5
+
+    return scalar * r_exp / r_std
+
+
+def get_modified_sqn(pnls_r):
+    """same calculation as standard sqn except all winning trades > 1R are capped at 1R in the stdev calculation.
+    since stdev is inversely proportional to sqn score, lots of big wins will lower the score"""
+    mod_pnls = [min(1, r) for r in pnls_r] # clipping r values at 1 so stdev doesnt penalise big wins
+    r_exp = stats.mean(pnls_r)
+    r_std = stats.stdev(mod_pnls)
     scalar = min(100, len(pnls_r)) ** 0.5
 
     return scalar * r_exp / r_std
@@ -111,6 +126,7 @@ for row in df.itertuples():
         max_dd = max_drawdown(pd.Series(all_bals))
         calmar = calmar_ratio(df_2.log_pnls, max_dd)
         sqn = get_sqn(all_rs)
+        sqn2 = get_modified_sqn(all_rs)
         win_rate = get_win_rate(all_rs)
         res_dict[res_count] = {'timeframe': row.timeframe,
                                'z score': row.z_score,
@@ -125,6 +141,7 @@ for row in df.itertuples():
                                'max_dd': max_dd,
                                'calmar': calmar,
                                'sqn': sqn,
+                               'sqn modified': sqn2,
                                'winrate': win_rate}
         res_count += 1
 
