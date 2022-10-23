@@ -58,7 +58,7 @@ def get_ohlc(pair):
     try:
         pair_path = ohlc_path / f"{pair}.pkl"
         return pd.read_pickle(pair_path)
-    except FileNotFoundError:
+    except (FileNotFoundError, OSError):
         klines = client.get_historical_klines(pair, Client.KLINE_INTERVAL_1MINUTE, '1 year ago UTC')
         cols = ['timestamp', 'open', 'high', 'low', 'close', 'base vol', 'close time',
                 'volume', 'num trades', 'taker buy base vol', 'taker buy quote vol', 'ignore']
@@ -67,7 +67,7 @@ def get_ohlc(pair):
         df = df.astype(float)
         df['timestamp'] = pd.to_datetime(df['timestamp'])
         df = df.drop(['base vol', 'close time', 'num trades', 'taker buy base vol',
-                 'taker buy quote vol', 'ignore'], axis=1)
+                      'taker buy quote vol', 'ignore'], axis=1)
         return df
 
 
@@ -376,25 +376,28 @@ def ib_signals(df, trend_type, z, bars, mult, source, ema_len, ema_lb, atr_val=0
 
 
 def plot_chart(df, trend_type, length, roc_bars, tail_bars, head_bars):
-    # df = (df[['timestamp', 'open', 'high', 'low', 'close', 'volume']]
-    #       .resample('1D', on='timestamp')
-    #       .agg({'open': 'first',
-    #             'high': 'max',
-    #             'low': 'min',
-    #             'close': 'last',
-    #             'volume': 'sum'}))
+    df = (df[['timestamp', 'open', 'high', 'low', 'close', 'volume', 'in_long', 'in_short', 'bal_evo']]
+          .resample('1D', on='timestamp')
+          .agg({'open': 'first',
+                'high': 'max',
+                'low': 'min',
+                'close': 'last',
+                'volume': 'sum',
+                'in_long': 'max',
+                'in_short': 'max',
+                'bal_evo': 'last'}))
     # df = df.dropna(how='any')
-    # df = df.reset_index()
+    df = df.reset_index()
 
-    df = df.tail(tail_bars)
+    # df = df.tail(tail_bars)
+    # # df = df.reset_index(drop=True)
+    # if head_bars:
+    #     df = df.head(head_bars)
     # df = df.reset_index(drop=True)
-    if head_bars:
-        df = df.head(head_bars)
-    df = df.reset_index(drop=True)
 
-    fig = make_subplots(rows=3, cols=1, shared_xaxes=True,
+    fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
                         vertical_spacing=0.01,
-                        row_heights=[0.6, 0.2, 0.2])
+                        row_heights=[0.8, 0.2])
     # add OHLC trace
     fig.add_trace(go.Candlestick(x=df.index,
                                  open=df['open'],
@@ -428,79 +431,41 @@ def plot_chart(df, trend_type, length, roc_bars, tail_bars, head_bars):
                                  # showlegend=False
                                  ))
 
-    ema_colours = ['green' if x else 'red' for x in list(df.ema_up)]
-    fig.add_trace(go.Scatter(x=df.index,
-                             y=df[f"ema_{length}"],
-                             opacity=0.7,
-                             mode='markers',
-                             marker=dict(color=ema_colours, size=2),
-                             name=f"ema_{length}"
-                             ))
+    # ema_colours = ['green' if x else 'red' for x in list(df.ema_up)]
+    # fig.add_trace(go.Scatter(x=df.index,
+    #                          y=df[f"ema_{length}"],
+    #                          opacity=0.7,
+    #                          mode='markers',
+    #                          marker=dict(color=ema_colours, size=2),
+    #                          name=f"ema_{length}"
+    #                          ))
+
+    # fig.add_trace(go.Scatter(x=df.index,
+    #                          y=df.short_stops,
+    #                          opacity=0.7,
+    #                          mode='markers',
+    #                          marker=dict(color='red', size=5),
+    #                          name='short stop'))
+    #
+    # fig.add_trace(go.Scatter(x=df.index,
+    #                          y=df.long_stops,
+    #                          opacity=0.7,
+    #                          mode='markers',
+    #                          marker=dict(color='green', size=5),
+    #                          name='long stop'))
+
+    # fig.add_trace(go.Scatter(x=df.index,
+    #                          y=df.vwma,
+    #                          opacity=0.7,
+    #                          line=dict(color='white', width=2),
+    #                          name=f"volume weighted avg"))
 
     fig.add_trace(go.Scatter(x=df.index,
-                             y=df.short_stops,
-                             opacity=0.7,
-                             mode='markers',
-                             marker=dict(color='red', size=5),
-                             name='short stop'))
-
-    fig.add_trace(go.Scatter(x=df.index,
-                             y=df.long_stops,
-                             opacity=0.7,
-                             mode='markers',
-                             marker=dict(color='green', size=5),
-                             name='long stop'))
-
-    fig.add_trace(go.Scatter(x=df.index,
-                             y=df.vwma,
-                             opacity=0.7,
-                             line=dict(color='white', width=2),
-                             name=f"volume weighted avg"))
-
-    fig.add_trace(go.Scatter(x=df.index,
-                             y=df[f"roc_{roc_bars}"],
+                             y=df.bal_evo,
                              opacity=0.7,
                              line=dict(color='blue', width=2),
-                             name=f"roc_{roc_bars}"),
+                             name='PnL (R)'),
                   row=2, col=1)
-
-    fig.add_trace(go.Scatter(x=df.index,
-                             y=df.thresh,
-                             opacity=0.7,
-                             line=dict(color='orange', width=2),
-                             name='thresh'),
-                  row=2, col=1)
-
-    fig.add_trace(go.Scatter(x=df.index,
-                             y=0 - df.thresh,
-                             opacity=0.7,
-                             line=dict(color='orange', width=2),
-                             name='thresh'),
-                  row=2, col=1)
-
-    # fig.add_trace(go.Scatter(x=df.index,
-    #                          y=df.hidden_flow,
-    #                          opacity=0.7,
-    #                          mode='lines',
-    #                          line=dict(color='black', width=2),
-    #                          name='hidden flow'),
-    #               row=3, col=1)
-    #
-    # fig.add_trace(go.Scatter(x=df.index,
-    #                          y=df.hf_upper,
-    #                          opacity=0.7,
-    #                          mode='lines',
-    #                          line=dict(color='red', width=2),
-    #                          name='upper bandw'),
-    #               row=3, col=1)
-    #
-    # fig.add_trace(go.Scatter(x=df.index,
-    #                          y=df.hf_lower,
-    #                          opacity=0.7,
-    #                          mode='lines',
-    #                          line=dict(color='red', width=2),
-    #                          name='lower band'),
-    #               row=3, col=1)
 
     fig.update_layout(xaxis_rangeslider_visible=False)
     fig.show()
@@ -511,7 +476,6 @@ def calc_pnl(pnls):
     start_bal = bal = 100
     risk_pct = 10
     for i in pnls:
-        print(bal)
         pnl_factor = 1 + (risk_pct * i / 100)
         bal = bal * pnl_factor
     print(f"final bal: {bal:.3f}, pnl = {(bal / start_bal) - 1:.1%}")
@@ -528,9 +492,23 @@ def projected_time(counter):
         print(f"{counter / num_tests:.1%} completed, estimated time remaining: {proj_str} ({proj_tot} total)")
 
 
+def calc_pnl_series(pnls, risk_pct):
+    """takes a list of trade PnLs denominated in R, and calculates the cumulative account balance from them"""
+    bal = 100
+    bal_evo = []
+    for i in pnls:
+        pnl_factor = 1 + (risk_pct * i / 100)
+        bal = bal * pnl_factor
+        bal_evo.append(bal)
+    return pd.Series(bal_evo)
+
+
 # MAIN
 
-#TODO already tested vwma as the tr_source, now testing close
+#TODO the main pc takes ~0.4s per test. i need to see if the shorter timeframes are consistently doing better than
+# longer timeframes and, if so, is it anything to do with the test param ranges being optimised originally for the 3min
+# tf. i should split the results into different timeframes and study each one to see if the best results are falling off
+# the edge of the test ranges
 
 if __name__ == '__main__':
 
@@ -538,30 +516,31 @@ if __name__ == '__main__':
 
     pair = 'BTCUSDT'
 
-    t_type = 'trend' # trend type ('trend' or 'breakout')
-    tr_source = 'close' # trend rate source ('close' or 'vwma')
+    t_type = 'trend'  # trend type ('trend' or 'breakout')
 
-    # timeframes = {'3min': 3, '5min': 5, '10min': 10, '30min': 30}
+    # timeframes = {'3min': 3, '5min': 5, '10min': 10, '30min': 30, '1h': 60}
     timeframes = {'3min': 3}
-    z_scores = [2, 2.5, 3]
-    # z_scores = [3]
-    bars = list(range(8, 19, 2))
-    # bars = [7]
-    windows = [350, 450, 550, 650, 750]
-    # windows = [550]
-    lookbacks = range(20)  # [10, 15, 20, 25]
-    # lookbacks = [20]
-    mults = range(5, 11)
-    # mults = [10]
-    atr_vals = range(0, 5)
-    # atr_vals = [0]
+    # tr_sources = ['close', 'vwma']
+    tr_sources = ['vwma']  # trend rate source ('close' or 'vwma')
+    # z_scores = [1, 1.5, 2, 2.5, 3]
+    z_scores = [3]
+    # bars = list(range(8, 19, 2))
+    bars = [8]
+    # windows = [350, 450, 550, 650, 750]
+    windows = [700]
+    # lookbacks = range(20)  # [10, 15, 20, 25]
+    lookbacks = [6]
+    # mults = range(5, 11)
+    mults = [5]
+    # atr_vals = range(0, 5)
+    atr_vals = [0]
 
     results = {}
     counter = 0
 
     df_orig = get_ohlc(pair)
 
-    num_tests = (len(timeframes.keys()) * len(z_scores) * len(bars)
+    num_tests = (len(timeframes.keys()) * len(tr_sources) * len(z_scores) * len(bars)
                  * len(mults) * len(windows) * len(lookbacks) * len(atr_vals))
     print(f"number of tests: {num_tests}")
 
@@ -570,9 +549,10 @@ if __name__ == '__main__':
         # data = hidden_flow(data, 100)
         data = vwma(data, timeframes[tf])
         data = resample(data, tf)
-        for z, bar, mult, window, lb, atr_val in it.product(z_scores, bars, mults, windows, lookbacks, atr_vals):
-            # print(f"{tf = } {tt = } {z = } {bar = } {mult = } {window = } {lb = } {atr_val = }")
-            df = ib_signals(data, t_type, z, bar, mult, tr_source, window, lb, atr_val)
+        for source, z, bar, mult, window, lb, atr_val in it.product(tr_sources, z_scores, bars, mults, windows,
+                                                                    lookbacks, atr_vals):
+            print(f"{tf = } {z = } {bar = } {mult = } {window = } {lb = } {atr_val = }")
+            df = ib_signals(data, t_type, z, bar, mult, source, window, lb, atr_val)
             df = test_frac_swing(df)
             # plot_fractals(data, 1440)
 
@@ -588,6 +568,7 @@ if __name__ == '__main__':
             med_short = short_rs.median()
             tot_short = short_rs.sum()
 
+            df['all_rs'] = pd.concat([long_rs, short_rs]).sort_index().reindex(df.index)
             all_rs = list(pd.concat([long_rs, short_rs]).sort_index())
             # print(all_rs)
 
@@ -595,11 +576,12 @@ if __name__ == '__main__':
             med_r = (med_long + med_short) / 2
             tot_r = tot_long + tot_short
 
-            df_signals = df.loc[(df.long_signal) | (df.short_signal), :]
+            df_signals = df.loc[df.long_signal | df.short_signal, :]
             len_1, len_2 = len(df), len(df_signals)
 
-            results[counter] = {'timeframe': tf, 'type': t_type, 'source': tr_source, 'z_score': z, 'bars': bar, 'mult': mult, 'ema_window': window,
-                                'lookback': lb, 'atr': atr_val, 'num_signals': len_2,
+            results[counter] = {'timeframe': tf, 'type': t_type, 'source': source, 'z_score': z, 'bars': bar,
+                                'mult': mult, 'ema_window': window, 'lookback': lb, 'atr': atr_val,
+                                'num_signals': len_2,
                                 'mean_long_r': mean_long, 'med_long_r': med_long, 'total_long_r': tot_long,
                                 'mean_short_r': mean_short, 'med_short_r': med_short, 'total_short_r': tot_short,
                                 'mean_r': mean_r, 'med_r': med_r, 'total_r': tot_r, 'all_rs': all_rs}
@@ -608,10 +590,10 @@ if __name__ == '__main__':
 
     results_df = pd.DataFrame.from_dict(results, orient='index')
     results_df.to_pickle('results.pkl')
-    print(f"Number of tests: {counter + 1}")
     print(results_df.loc[(results_df.num_signals > 50) & (results_df.med_r > 0)]
           .sort_values('total_r', ascending=False).head(30))
-    # plot_chart(df, tt, window, bar, 6000, 1500)
+    df['bal_evo'] = calc_pnl_series(df.all_rs.fillna(0), 1)
+    plot_chart(df, t_type, window, bar, 6000, 1500)
 
     end = time.perf_counter()
     elapsed = round(end - start)

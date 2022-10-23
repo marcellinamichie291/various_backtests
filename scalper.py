@@ -25,10 +25,13 @@ pd.set_option('display.precision', 3)
 pb = Pushbullet('o.H4ZkitbaJgqx9vxo5kL2MMwnlANcloxT')
 ctx = getcontext()
 ctx.prec = 12
-TEST_API_KEY = '<your API Key>'
-TEST_API_SECRET = '<your API secret>'
-base_endpoint = 'https://api.binance.us' # Select the Binance API endpoint for your exchange
-client = Client(api_key=TEST_API_KEY, api_secret=TEST_API_SECRET, testnet=True, tld='us')
+
+base_ep = 'wss://stream.binance.com:9443/ws'
+test_base_ep = 'wss://testnet.binance.vision/ws'
+stream_ep = 'wss://stream.binance.com:9443/stream'
+test_stream_ep = 'wss://testnet.binance.vision/stream'
+
+client = Client(api_key=keys.bPkey, api_secret=keys.bSkey, testnet=True)
 
 # FUNCTIONS
 
@@ -63,11 +66,11 @@ def process_stream_data(binance_websocket_api_manager):
 
 
 def start_websocket_listener():
-    binance_us_websocket_api_manager = BinanceWebSocketApiManager(exchange="binance.us")
+    binance_websocket_api_manager = BinanceWebSocketApiManager(exchange="binance")
     channels = {'trade', }
-    binance_us_websocket_api_manager.create_stream(channels, markets=lc_symbols, api_key=TEST_API_KEY, api_secret=TEST_API_SECRET)
+    binance_websocket_api_manager.create_stream(channels, markets='BTCUSDT', api_key=TEST_API_KEY, api_secret=TEST_API_SECRET)
     # Start a worker process to move the received stream_data from the stream_buffer to a print function
-    worker_thread = threading.Thread(target=process_stream_data, args=(binance_us_websocket_api_manager,))
+    worker_thread = threading.Thread(target=process_stream_data, args=(binance_websocket_api_manager,))
     worker_thread.start()
 
 
@@ -83,9 +86,6 @@ def compare_server_times():
     tt = time.localtime(yy)
     print(f"Binance Server time: {tt}")
     print(f"Local time: {time.localtime()}")
-
-
-#  Initialize binance client
 
 
 #  Compare server and local times

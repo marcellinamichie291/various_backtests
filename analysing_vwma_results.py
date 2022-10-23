@@ -17,7 +17,9 @@ pd.set_option('display.max_rows', None)
 pd.set_option('display.expand_frame_repr', False)
 pd.set_option('display.precision', 4)
 
-df = pd.read_pickle('vwma_results.pkl')
+df_v = pd.read_pickle('vwma_results.pkl')
+df_c = pd.read_pickle('close_results.pkl')
+df = pd.concat([df_v, df_c])
 
 
 def calc_pnl(pnls, risk_pct):
@@ -68,6 +70,7 @@ def sharpe_ratio(series):
 
     return expected_ret/volatility
 
+
 def sortino_ratio(series):
     """
     Calculates the Sortino ratio for a given column in a dataframe.
@@ -112,6 +115,14 @@ def get_win_rate(pnls_r):
     return len(wins) / len(pnls_r)
 
 
+def avg_win_avg_loss(pnls_r):
+    pass
+
+
+def modified_winrate(pnls_r):
+    pass
+
+
 res_dict = {}
 res_count = 0
 for row in df.itertuples():
@@ -129,21 +140,32 @@ for row in df.itertuples():
         sqn2 = get_modified_sqn(all_rs)
         win_rate = get_win_rate(all_rs)
         res_dict[res_count] = {'timeframe': row.timeframe,
+                               'source': row.source,
                                'z score': row.z_score,
                                'bars': row.bars,
                                'mult': row.mult,
                                'ema': row.ema_window,
                                'lookback': row.lookback,
                                'atr': row.atr,
+                               'trades': len(all_rs),
                                'pnl': (all_bals[-1] / all_bals[0]) - 1,
                                'sharpe': sharpe,
                                'sortino': sortino,
                                'max_dd': max_dd,
                                'calmar': calmar,
                                'sqn': sqn,
-                               'sqn modified': sqn2,
+                               'sqn_modified': sqn2,
                                'winrate': win_rate}
         res_count += 1
 
 res_df = pd.DataFrame.from_dict(res_dict, orient='index')
-print(res_df.sort_values('sqn', ascending=False).head(30))
+res_df['score'] = (res_df.pnl.rank() +
+                   res_df.sharpe.rank() +
+                   res_df.sortino.rank() +
+                   res_df.max_dd.rank(ascending=False) +
+                   res_df.calmar.rank() +
+                   res_df.sqn.rank() +
+                   res_df.sqn_modified.rank() +
+                   res_df.winrate.rank()
+                   / 8)
+print(res_df.sort_values('score', ascending=False).head(100))
