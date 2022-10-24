@@ -650,12 +650,24 @@ if __name__ == '__main__':
                 df_signals = df.loc[df.long_signal | df.short_signal, :]
                 len_1, len_2 = len(df), len(df_signals)
 
+                pos_r = [r for r in all_rs if r > 0]
+                neg_r = [r for r in all_rs if r <= 0]
+                if all_rs:
+                    win_rate = round(len(pos_r) / len(all_rs), 2)
+                    if neg_r:
+                        profit_factor = stats.mean(pos_r) / abs(stats.mean(neg_r))
+                    else:
+                        profit_factor = 10
+                else:
+                    win_rate = 0
+                    profit_factor = 0
+
                 results[counter] = {'pair': pair, 'timeframe': tf, 'type': t_type, 'source': source, 'z_score': z,
                                     'bars': bar, 'mult': mult, 'ema_window': window, 'lookback': lb, 'atr': atr_val,
-                                    'num_signals': len_2,
-                                    'mean_long_r': mean_long, 'med_long_r': med_long, 'total_long_r': tot_long,
-                                    'mean_short_r': mean_short, 'med_short_r': med_short, 'total_short_r': tot_short,
-                                    'mean_r': mean_r, 'med_r': med_r, 'total_r': tot_r, 'all_rs': all_rs}
+                                    'num_signals': len_2, 'mean_long_r': mean_long, 'med_long_r': med_long,
+                                    'total_long_r': tot_long, 'mean_short_r': mean_short, 'med_short_r': med_short,
+                                    'total_short_r': tot_short, 'mean_r': mean_r, 'med_r': med_r, 'total_r': tot_r,
+                                    'win_rate': win_rate, 'profit_factor': profit_factor, 'all_rs': all_rs}
                 counter += 1
                 projected_time(counter)
 
@@ -664,7 +676,10 @@ if __name__ == '__main__':
 
     results_df = pd.DataFrame.from_dict(results, orient='index')
     results_df.to_pickle('results.pkl')
-    print(results_df.loc[(results_df.num_signals > 50) & (results_df.med_r > 0)]
+    print(results_df.loc[
+              (results_df.num_signals > 50)
+              # & (results_df.med_r > 0)
+          ]
           .sort_values('total_r', ascending=False).head(30))
 
 
