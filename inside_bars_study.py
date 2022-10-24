@@ -1,3 +1,5 @@
+import datetime
+
 import pandas as pd
 import keys
 from binance import Client
@@ -55,6 +57,7 @@ def get_pairs(quote: str = 'USDT', market: str = 'SPOT') -> List[str]:
 
 
 def get_ohlc(pair):
+    print('runnning get_ohlc')
     try:
         pair_path = ohlc_path / f"{pair}.pkl"
         return pd.read_pickle(pair_path)
@@ -69,6 +72,56 @@ def get_ohlc(pair):
         df = df.drop(['base vol', 'close time', 'num trades', 'taker buy base vol',
                       'taker buy quote vol', 'ignore'], axis=1)
         return df
+
+
+def update_ohlc(pair: str, timeframe: str, old_df: pd.DataFrame) -> pd.DataFrame:
+    print('runnning update_ohlc')
+    """takes an ohlc dataframe, works out when the data ends, then requests from
+    binance all data from the end to the current moment. It then joins the new
+    data onto the old data and returns the updated dataframe"""
+
+    # client = Client(keys.bPkey, keys.bSkey)
+    tf = {'1m': Client.KLINE_INTERVAL_1MINUTE,
+          '5m': Client.KLINE_INTERVAL_5MINUTE,
+          '15m': Client.KLINE_INTERVAL_15MINUTE,
+          '30m': Client.KLINE_INTERVAL_30MINUTE,
+          '1h': Client.KLINE_INTERVAL_1HOUR,
+          '4h': Client.KLINE_INTERVAL_4HOUR,
+          '6h': Client.KLINE_INTERVAL_6HOUR,
+          '8h': Client.KLINE_INTERVAL_8HOUR,
+          '12h': Client.KLINE_INTERVAL_12HOUR,
+          '1d': Client.KLINE_INTERVAL_1DAY,
+          '3d': Client.KLINE_INTERVAL_3DAY,
+          '1w': Client.KLINE_INTERVAL_1WEEK,
+          }
+    old_end = int(old_df.at[len(old_df) - 1, 'timestamp'].timestamp()) * 1000
+    klines = client.get_klines(symbol=pair, interval=tf.get(timeframe),
+                               startTime=old_end)
+    cols = ['timestamp', 'open', 'high', 'low', 'close', 'base vol', 'close time',
+            'volume', 'num trades', 'taker buy base vol', 'taker buy quote vol', 'ignore']
+    df = pd.DataFrame(klines, columns=cols)
+    df['timestamp'] = df['timestamp'] * 1000000
+    df = df.astype(float)
+    df['timestamp'] = pd.to_datetime(df['timestamp'])
+    df.drop(['base vol', 'close time', 'num trades', 'taker buy base vol',
+             'taker buy quote vol', 'ignore'], axis=1, inplace=True)
+
+    df_new = pd.concat([old_df[:-1], df], copy=True, ignore_index=True)
+    return df_new
+
+
+def ohlc_1yr(pair):
+    fp = Path(f"{pair}_1m.pkl")
+    if fp.exists():
+        df = pd.read_pickle(fp)
+        df = update_ohlc(pair, '1m', df)
+        df = df.tail(525600)
+        df = df.reset_index(drop=True)
+    else:
+        df = get_ohlc(pair)
+
+    return df
+
 
 
 def resample(df: pd.DataFrame, timeframe: str) -> pd.DataFrame:
@@ -375,7 +428,7 @@ def ib_signals(df, trend_type, z, bars, mult, source, ema_len, ema_lb, atr_val=0
     return df
 
 
-def plot_chart(df, trend_type, length, roc_bars, tail_bars, head_bars):
+def plot_chart(df, pair, trend_type, length, roc_bars, tail_bars, head_bars):
     df = (df[['timestamp', 'open', 'high', 'low', 'close', 'volume', 'in_long', 'in_short', 'bal_evo']]
           .resample('1D', on='timestamp')
           .agg({'open': 'first',
@@ -467,14 +520,20 @@ def plot_chart(df, trend_type, length, roc_bars, tail_bars, head_bars):
                              name='PnL (R)'),
                   row=2, col=1)
 
-    fig.update_layout(xaxis_rangeslider_visible=False)
+    fig.update_layout(xaxis_rangeslider_visible=False,
+                      title={
+                          'text': pair,
+                          'y': 0.9,
+                          'x': 0.5,
+                          'xanchor': 'center',
+                          'yanchor': 'top'}
+                      )
     fig.show()
 
 
-def calc_pnl(pnls):
+def calc_pnl(pnls, risk_pct):
     """takes a list of trade PnLs denominated in R, and calculates the cumulative profit"""
     start_bal = bal = 100
-    risk_pct = 10
     for i in pnls:
         pnl_factor = 1 + (risk_pct * i / 100)
         bal = bal * pnl_factor
@@ -505,95 +564,99 @@ def calc_pnl_series(pnls, risk_pct):
 
 # MAIN
 
-#TODO the main pc takes ~0.4s per test. i need to see if the shorter timeframes are consistently doing better than
-# longer timeframes and, if so, is it anything to do with the test param ranges being optimised originally for the 3min
-# tf. i should split the results into different timeframes and study each one to see if the best results are falling off
-# the edge of the test ranges
+# TODO the main pc takes ~0.4s per test. i should split the results into different timeframes and study each one to see
+#  if the best results are falling off the edge of the test ranges
+
+# TODO i really need to walk-forward test all of it
 
 if __name__ == '__main__':
-
     start = time.perf_counter()
 
-    pair = 'BTCUSDT'
+    pairs = ['BTCUSDT', 'ETHUSDT', 'ETHBTC', 'BNBUSDT', 'XRPUSDT', 'ADAUSDT', 'SOLUSDT', 'DOGEUSDT', 'DOTUSDT',
+             'MATICUSDT']
+    # pairs = ['BTCUSDT']
 
     t_type = 'trend'  # trend type ('trend' or 'breakout')
 
     # timeframes = {'3min': 3, '5min': 5, '10min': 10, '30min': 30, '1h': 60}
-    timeframes = {'3min': 3}
+    timeframes = {'10min': 10}
     # tr_sources = ['close', 'vwma']
-    tr_sources = ['vwma']  # trend rate source ('close' or 'vwma')
+    tr_sources = ['close']  # trend rate source ('close' or 'vwma')
     # z_scores = [1, 1.5, 2, 2.5, 3]
-    z_scores = [3]
+    z_scores = [2]
     # bars = list(range(8, 19, 2))
-    bars = [8]
-    # windows = [350, 450, 550, 650, 750]
-    windows = [700]
-    # lookbacks = range(20)  # [10, 15, 20, 25]
-    lookbacks = [6]
+    bars = [10]
     # mults = range(5, 11)
-    mults = [5]
+    mults = [9]
+    # windows = [350, 450, 550, 650, 750]
+    windows = [450]
+    # lookbacks = range(20)  # [10, 15, 20, 25]
+    lookbacks = [8]
     # atr_vals = range(0, 5)
     atr_vals = [0]
 
     results = {}
     counter = 0
 
-    df_orig = get_ohlc(pair)
-
-    num_tests = (len(timeframes.keys()) * len(tr_sources) * len(z_scores) * len(bars)
-                 * len(mults) * len(windows) * len(lookbacks) * len(atr_vals))
+    num_tests = (len(pairs) * len(timeframes.keys()) * len(tr_sources) * len(z_scores)
+                 * len(bars) * len(mults) * len(windows) * len(lookbacks) * len(atr_vals))
     print(f"number of tests: {num_tests}")
 
-    for tf in timeframes.keys():
-        data = df_orig.copy()
-        # data = hidden_flow(data, 100)
-        data = vwma(data, timeframes[tf])
-        data = resample(data, tf)
-        for source, z, bar, mult, window, lb, atr_val in it.product(tr_sources, z_scores, bars, mults, windows,
-                                                                    lookbacks, atr_vals):
-            print(f"{tf = } {z = } {bar = } {mult = } {window = } {lb = } {atr_val = }")
-            df = ib_signals(data, t_type, z, bar, mult, source, window, lb, atr_val)
-            df = test_frac_swing(df)
-            # plot_fractals(data, 1440)
+    for pair in pairs:
+        print(pair)
+        df_orig = ohlc_1yr(pair)
+        for tf in timeframes.keys():
+            data = df_orig.copy()
+            # data = hidden_flow(data, 100)
+            data = vwma(data, timeframes[tf])
+            data = resample(data, tf)
+            for source, z, bar, mult, window, lb, atr_val in it.product(tr_sources, z_scores, bars, mults, windows,
+                                                                        lookbacks, atr_vals):
+                print(f"{tf = } {z = } {bar = } {mult = } {window = } {lb = } {atr_val = }")
+                df = ib_signals(data, t_type, z, bar, mult, source, window, lb, atr_val)
+                df = test_frac_swing(df)
+                # plot_fractals(data, 1440)
 
-            # long_rs = df.long_pnl_r.loc[df.long_shift]
-            long_rs = df.long_pnl_r.dropna()
-            mean_long = long_rs.mean()
-            med_long = long_rs.median()
-            tot_long = long_rs.sum()
+                # long_rs = df.long_pnl_r.loc[df.long_shift]
+                long_rs = df.long_pnl_r.dropna()
+                mean_long = long_rs.mean()
+                med_long = long_rs.median()
+                tot_long = long_rs.sum()
 
-            # short_rs = df.short_pnl_r.loc[df.short_shift]
-            short_rs = df.short_pnl_r.dropna()
-            mean_short = short_rs.mean()
-            med_short = short_rs.median()
-            tot_short = short_rs.sum()
+                # short_rs = df.short_pnl_r.loc[df.short_shift]
+                short_rs = df.short_pnl_r.dropna()
+                mean_short = short_rs.mean()
+                med_short = short_rs.median()
+                tot_short = short_rs.sum()
 
-            df['all_rs'] = pd.concat([long_rs, short_rs]).sort_index().reindex(df.index)
-            all_rs = list(pd.concat([long_rs, short_rs]).sort_index())
-            # print(all_rs)
+                df['all_rs'] = pd.concat([long_rs, short_rs]).sort_index().reindex(df.index)
+                all_rs = list(pd.concat([long_rs, short_rs]).sort_index())
+                # print(all_rs)
 
-            mean_r = (mean_long + mean_short) / 2
-            med_r = (med_long + med_short) / 2
-            tot_r = tot_long + tot_short
+                mean_r = (mean_long + mean_short) / 2
+                med_r = (med_long + med_short) / 2
+                tot_r = tot_long + tot_short
 
-            df_signals = df.loc[df.long_signal | df.short_signal, :]
-            len_1, len_2 = len(df), len(df_signals)
+                df_signals = df.loc[df.long_signal | df.short_signal, :]
+                len_1, len_2 = len(df), len(df_signals)
 
-            results[counter] = {'timeframe': tf, 'type': t_type, 'source': source, 'z_score': z, 'bars': bar,
-                                'mult': mult, 'ema_window': window, 'lookback': lb, 'atr': atr_val,
-                                'num_signals': len_2,
-                                'mean_long_r': mean_long, 'med_long_r': med_long, 'total_long_r': tot_long,
-                                'mean_short_r': mean_short, 'med_short_r': med_short, 'total_short_r': tot_short,
-                                'mean_r': mean_r, 'med_r': med_r, 'total_r': tot_r, 'all_rs': all_rs}
-            counter += 1
-            projected_time(counter)
+                results[counter] = {'timeframe': tf, 'type': t_type, 'source': source, 'z_score': z, 'bars': bar,
+                                    'mult': mult, 'ema_window': window, 'lookback': lb, 'atr': atr_val,
+                                    'num_signals': len_2,
+                                    'mean_long_r': mean_long, 'med_long_r': med_long, 'total_long_r': tot_long,
+                                    'mean_short_r': mean_short, 'med_short_r': med_short, 'total_short_r': tot_short,
+                                    'mean_r': mean_r, 'med_r': med_r, 'total_r': tot_r, 'all_rs': all_rs}
+                counter += 1
+                projected_time(counter)
+
+                # df['bal_evo'] = calc_pnl_series(df.all_rs.fillna(0), 1)
+                # plot_chart(df, pair, t_type, window, bar, 6000, 1500)
 
     results_df = pd.DataFrame.from_dict(results, orient='index')
     results_df.to_pickle('results.pkl')
     print(results_df.loc[(results_df.num_signals > 50) & (results_df.med_r > 0)]
           .sort_values('total_r', ascending=False).head(30))
-    df['bal_evo'] = calc_pnl_series(df.all_rs.fillna(0), 1)
-    plot_chart(df, t_type, window, bar, 6000, 1500)
+
 
     end = time.perf_counter()
     elapsed = round(end - start)

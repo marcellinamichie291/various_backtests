@@ -17,9 +17,11 @@ pd.set_option('display.max_rows', None)
 pd.set_option('display.expand_frame_repr', False)
 pd.set_option('display.precision', 4)
 
-df_v = pd.read_pickle('vwma_results.pkl')
-df_c = pd.read_pickle('close_results.pkl')
-df = pd.concat([df_v, df_c])
+df = pd.read_pickle('results.pkl')
+# df_v = pd.read_pickle('vwma_results.pkl')
+# df_c = pd.read_pickle('close_results.pkl')
+# df_a = pd.read_pickle('results_all_tfs.pkl')
+# df = pd.concat([df_v, df_c, df_a])
 
 
 def calc_pnl(pnls, risk_pct):
@@ -128,7 +130,7 @@ res_count = 0
 for row in df.itertuples():
     if len(row.all_rs) > 50:
         all_rs = row.all_rs
-        all_bals = calc_pnl(all_rs, 1.5)
+        all_bals = calc_pnl(all_rs, 1)
         all_rs = [0] + all_rs
         df_2 = pd.DataFrame({'r_series': all_rs, 'bal_series': all_bals})
         df_2['log_pnls'] = log_returns(df_2, 'bal_series')
@@ -148,7 +150,7 @@ for row in df.itertuples():
                                'lookback': row.lookback,
                                'atr': row.atr,
                                'trades': len(all_rs),
-                               'pnl': (all_bals[-1] / all_bals[0]) - 1,
+                               'pnl_pct': ((all_bals[-1] / all_bals[0]) - 1) * 100,
                                'sharpe': sharpe,
                                'sortino': sortino,
                                'max_dd': max_dd,
@@ -159,7 +161,7 @@ for row in df.itertuples():
         res_count += 1
 
 res_df = pd.DataFrame.from_dict(res_dict, orient='index')
-res_df['score'] = (res_df.pnl.rank() +
+res_df['score'] = (res_df.pnl_pct.rank() +
                    res_df.sharpe.rank() +
                    res_df.sortino.rank() +
                    res_df.max_dd.rank(ascending=False) +
