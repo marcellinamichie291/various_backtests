@@ -650,8 +650,8 @@ if __name__ == '__main__':
                 df_signals = df.loc[df.long_signal | df.short_signal, :]
                 len_1, len_2 = len(df), len(df_signals)
 
-                results[counter] = {'timeframe': tf, 'type': t_type, 'source': source, 'z_score': z, 'bars': bar,
-                                    'mult': mult, 'ema_window': window, 'lookback': lb, 'atr': atr_val,
+                results[counter] = {'pair': pair, 'timeframe': tf, 'type': t_type, 'source': source, 'z_score': z,
+                                    'bars': bar, 'mult': mult, 'ema_window': window, 'lookback': lb, 'atr': atr_val,
                                     'num_signals': len_2,
                                     'mean_long_r': mean_long, 'med_long_r': med_long, 'total_long_r': tot_long,
                                     'mean_short_r': mean_short, 'med_short_r': med_short, 'total_short_r': tot_short,
