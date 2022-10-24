@@ -533,12 +533,12 @@ def plot_chart(df, pair, trend_type, length, roc_bars, tail_bars, head_bars, sho
                       )
     if show:
         fig.show()
-    else:
-        fig.to_image(f"{pair}_results.png",
-                     format='png',
-                     width=1920,
-                     height=1080,
-                     scale=1)
+    # else:
+    #     fig.to_image(f"{pair}_results.png",
+    #                  format='png',
+    #                  width=1920,
+    #                  height=1080,
+    #                  scale=1)
 
 
 def calc_pnl(pnls, risk_pct):
