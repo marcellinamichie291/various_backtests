@@ -59,7 +59,8 @@ def get_pairs(quote: str = 'USDT', market: str = 'SPOT') -> List[str]:
 def get_ohlc(pair):
     print('runnning get_ohlc')
     try:
-        pair_path = ohlc_path / f"{pair}.pkl"
+        # pair_path = ohlc_path / f"{pair}.pkl"
+        pair_path = f"{pair}_1m.pkl"
         return pd.read_pickle(pair_path)
     except (FileNotFoundError, OSError):
         klines = client.get_historical_klines(pair, Client.KLINE_INTERVAL_1MINUTE, '1 year ago UTC')
@@ -71,6 +72,7 @@ def get_ohlc(pair):
         df['timestamp'] = pd.to_datetime(df['timestamp'])
         df = df.drop(['base vol', 'close time', 'num trades', 'taker buy base vol',
                       'taker buy quote vol', 'ignore'], axis=1)
+
         return df
 
 
@@ -120,8 +122,9 @@ def ohlc_1yr(pair):
     else:
         df = get_ohlc(pair)
 
-    return df
+    df.to_pickle(fp)
 
+    return df
 
 
 def resample(df: pd.DataFrame, timeframe: str) -> pd.DataFrame:
@@ -428,7 +431,7 @@ def ib_signals(df, trend_type, z, bars, mult, source, ema_len, ema_lb, atr_val=0
     return df
 
 
-def plot_chart(df, pair, trend_type, length, roc_bars, tail_bars, head_bars):
+def plot_chart(df, pair, trend_type, length, roc_bars, tail_bars, head_bars, show):
     df = (df[['timestamp', 'open', 'high', 'low', 'close', 'volume', 'in_long', 'in_short', 'bal_evo']]
           .resample('1D', on='timestamp')
           .agg({'open': 'first',
@@ -528,7 +531,14 @@ def plot_chart(df, pair, trend_type, length, roc_bars, tail_bars, head_bars):
                           'xanchor': 'center',
                           'yanchor': 'top'}
                       )
-    fig.show()
+    if show:
+        fig.show()
+    else:
+        fig.to_image(file=f"{pair}_results.png",
+                     format='png',
+                     width=1920,
+                     height=1080,
+                     scale=1)
 
 
 def calc_pnl(pnls, risk_pct):
@@ -649,8 +659,8 @@ if __name__ == '__main__':
                 counter += 1
                 projected_time(counter)
 
-                # df['bal_evo'] = calc_pnl_series(df.all_rs.fillna(0), 1)
-                # plot_chart(df, pair, t_type, window, bar, 6000, 1500)
+                df['bal_evo'] = calc_pnl_series(df.all_rs.fillna(0), 1)
+                plot_chart(df, pair, t_type, window, bar, 6000, 1500, show=False)
 
     results_df = pd.DataFrame.from_dict(results, orient='index')
     results_df.to_pickle('results.pkl')
