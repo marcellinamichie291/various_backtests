@@ -168,11 +168,13 @@ class Agent():
         last = self.df.to_dict('records')[-1]
         if last['long_signal']:
             now = datetime.datetime.now().strftime('%d/%m/%y %H:%M')
-            note = f"{self.pair} long signal, invalidation: {last['inval_low']}, {last['vol_delta'] = }"
+            note = (f"{self.pair} {self.timeframe} long signal, "
+                    f"invalidation: {last['inval_low']}, {last['vol_delta'] = }")
             pb.push_note(now, note)
             print(now, note)
         if last['short_signal']:
             now = datetime.datetime.now().strftime('%d/%m/%y %H:%M')
-            note = f"{self.pair} short signal, invalidation: {last['inval_high']}, {last['vol_delta'] = }"
+            note = (f"{self.pair} {self.timeframe} short signal, "
+                    f"invalidation: {last['inval_high']}, {last['vol_delta'] = }")
             pb.push_note(now, note)
             print(now, note)
