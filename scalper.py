@@ -8,6 +8,7 @@ import websocket
 import numpy as np
 from binance import Client
 from scalper_agent import Agent
+from scalper_stream import Ohlc_Stream
 from pathlib import Path
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -37,25 +38,36 @@ def on_close(ws):
 
 
 def on_message(ws, msg):
+    start = time.perf_counter()
     details = parse_msg(msg)
-    agent = agents[details['agent']]
-    agent.prices.append(details['price'])
-    agent.volumes.append(details['volume'])
+    stream = streams[details['stream']]
+    print(f"updating {stream.id}")
+    stream.prices.append(details['price'])
+    stream.volumes.append(details['volume'])
     if details['close']:
-        agent.run_calcs(details['data'])
+        print(f'updating ohlc for {stream.id}')
+        stream.update_ohlc(details['data'])
+        for agent_id in agents.keys():
+            if details['stream'] in agent_id:
+                agent = agents[agent_id]
+                print(f"running calcs for {agent_id}")
+                agent.run_calcs(details['data'], stream.ohlc)
+                print('done')
+    end = time.perf_counter()
+    print(end-start)
 
 
 def parse_msg(msg):
     message = json.loads(msg)
 
-    if len(agents.keys()) == 1:
+    if len(streams) == 1:
         stream_id = f"{message['k']['s'].lower()}@kline_{message['k']['i']}"
         data = message
     else:
         stream_id = message['stream']
         data = message['data']
 
-    return {'agent': stream_id,
+    return {'stream': stream_id,
             'data': data,
             'price': float(data['k']['c']),
             'volume': float(data['k']['q']),
@@ -63,7 +75,7 @@ def parse_msg(msg):
             'close': data['k']['x']}
 
 
-def set_stream(settings, live):
+def build_feed(settings, live):
     if live:
         base_ep = 'wss://stream.binance.com:9443/ws/'
         stream_ep = 'wss://stream.binance.com/stream'
@@ -72,14 +84,24 @@ def set_stream(settings, live):
         stream_ep = 'wss://testnet.binance.vision/stream'
 
     if len(settings) == 1:
-        stream = f'{base_ep}{settings[0][0]}@kline_{settings[0][1]}'
+        feed_str = f"{base_ep}{settings[0][0]}"
     else:
-        elements = [f"{i[0]}@kline_{i[1]}" for i in settings]
-        stream = f'{stream_ep}?streams=' + '/'.join(elements)
+        elements = [i[0] for i in settings]
+        feed_str = f'{stream_ep}?streams=' + '/'.join(elements)
 
-    print(stream)
+    return feed_str
 
-    return stream
+
+def init_streams(streams_list, agents_dict, live):
+    streams = {}
+    for s in streams_list:
+        max_lbs = []
+        for agent in agents_dict.values():
+            if s[0] == agent.stream:
+                max_lbs.append(agent.max_lb)
+        streams[s[0]] = Ohlc_Stream(s, max(max_lbs), live)
+
+    return streams
 
 
 # CONSTANTS
@@ -88,10 +110,33 @@ ctx = getcontext()
 ctx.prec = 12
 
 # Settings
+settings_df = pd.read_pickle('results_all_tfs.pkl')
+
+
 agent_params = [
     {'pair': 'btcusdt',
      'tf': '1m',
      'bias_lb': 450,  # long-term ema trend for bullish/bearish bias
+     'bias_roc_lb': 8,  # lookback for judging if the long-term ema is moving up or down
+     'source': 'vwap',  # timeseries source for trend_rate calculation
+     'bars': 10,  # lookback for the ROC that is applied to the source in trend_rate
+     'mult': 9,  # bars * mult gives the lookback window for finding the rolling mean and stdev of the ROC series
+     'z': 2,  # z-score that the threshold is set to, to decide what is True or False in trend_rate
+     'width': 5  # for a high/low to qualify as a williams fractal, it must be the highest/lowest of this many bars
+     },
+    {'pair': 'btcusdt',
+     'tf': '1m',
+     'bias_lb': 500,  # long-term ema trend for bullish/bearish bias
+     'bias_roc_lb': 8,  # lookback for judging if the long-term ema is moving up or down
+     'source': 'vwap',  # timeseries source for trend_rate calculation
+     'bars': 10,  # lookback for the ROC that is applied to the source in trend_rate
+     'mult': 9,  # bars * mult gives the lookback window for finding the rolling mean and stdev of the ROC series
+     'z': 2,  # z-score that the threshold is set to, to decide what is True or False in trend_rate
+     'width': 5  # for a high/low to qualify as a williams fractal, it must be the highest/lowest of this many bars
+     },
+    {'pair': 'btcusdt',
+     'tf': '1m',
+     'bias_lb': 750,  # long-term ema trend for bullish/bearish bias
      'bias_roc_lb': 8,  # lookback for judging if the long-term ema is moving up or down
      'source': 'vwap',  # timeseries source for trend_rate calculation
      'bars': 10,  # lookback for the ROC that is applied to the source in trend_rate
@@ -110,8 +155,78 @@ agent_params = [
      'width': 5  # for a high/low to qualify as a williams fractal, it must be the highest/lowest of this many bars
      },
     {'pair': 'btcusdt',
+     'tf': '5m',
+     'bias_lb': 500,  # long-term ema trend for bullish/bearish bias
+     'bias_roc_lb': 8,  # lookback for judging if the long-term ema is moving up or down
+     'source': 'vwap',  # timeseries source for trend_rate calculation
+     'bars': 10,  # lookback for the ROC that is applied to the source in trend_rate
+     'mult': 9,  # bars * mult gives the lookback window for finding the rolling mean and stdev of the ROC series
+     'z': 2,  # z-score that the threshold is set to, to decide what is True or False in trend_rate
+     'width': 5  # for a high/low to qualify as a williams fractal, it must be the highest/lowest of this many bars
+     },
+    {'pair': 'btcusdt',
+     'tf': '5m',
+     'bias_lb': 750,  # long-term ema trend for bullish/bearish bias
+     'bias_roc_lb': 8,  # lookback for judging if the long-term ema is moving up or down
+     'source': 'vwap',  # timeseries source for trend_rate calculation
+     'bars': 10,  # lookback for the ROC that is applied to the source in trend_rate
+     'mult': 9,  # bars * mult gives the lookback window for finding the rolling mean and stdev of the ROC series
+     'z': 2,  # z-score that the threshold is set to, to decide what is True or False in trend_rate
+     'width': 5  # for a high/low to qualify as a williams fractal, it must be the highest/lowest of this many bars
+     },
+    {'pair': 'btcusdt',
      'tf': '15m',
      'bias_lb': 450,  # long-term ema trend for bullish/bearish bias
+     'bias_roc_lb': 8,  # lookback for judging if the long-term ema is moving up or down
+     'source': 'vwap',  # timeseries source for trend_rate calculation
+     'bars': 10,  # lookback for the ROC that is applied to the source in trend_rate
+     'mult': 9,  # bars * mult gives the lookback window for finding the rolling mean and stdev of the ROC series
+     'z': 2,  # z-score that the threshold is set to, to decide what is True or False in trend_rate
+     'width': 5  # for a high/low to qualify as a williams fractal, it must be the highest/lowest of this many bars
+     },
+    {'pair': 'btcusdt',
+     'tf': '15m',
+     'bias_lb': 500,  # long-term ema trend for bullish/bearish bias
+     'bias_roc_lb': 8,  # lookback for judging if the long-term ema is moving up or down
+     'source': 'vwap',  # timeseries source for trend_rate calculation
+     'bars': 10,  # lookback for the ROC that is applied to the source in trend_rate
+     'mult': 9,  # bars * mult gives the lookback window for finding the rolling mean and stdev of the ROC series
+     'z': 2,  # z-score that the threshold is set to, to decide what is True or False in trend_rate
+     'width': 5  # for a high/low to qualify as a williams fractal, it must be the highest/lowest of this many bars
+     },
+    {'pair': 'btcusdt',
+     'tf': '15m',
+     'bias_lb': 750,  # long-term ema trend for bullish/bearish bias
+     'bias_roc_lb': 8,  # lookback for judging if the long-term ema is moving up or down
+     'source': 'vwap',  # timeseries source for trend_rate calculation
+     'bars': 10,  # lookback for the ROC that is applied to the source in trend_rate
+     'mult': 9,  # bars * mult gives the lookback window for finding the rolling mean and stdev of the ROC series
+     'z': 2,  # z-score that the threshold is set to, to decide what is True or False in trend_rate
+     'width': 5  # for a high/low to qualify as a williams fractal, it must be the highest/lowest of this many bars
+     },
+    {'pair': 'btcusdt',
+     'tf': '30m',
+     'bias_lb': 450,  # long-term ema trend for bullish/bearish bias
+     'bias_roc_lb': 8,  # lookback for judging if the long-term ema is moving up or down
+     'source': 'vwap',  # timeseries source for trend_rate calculation
+     'bars': 10,  # lookback for the ROC that is applied to the source in trend_rate
+     'mult': 9,  # bars * mult gives the lookback window for finding the rolling mean and stdev of the ROC series
+     'z': 2,  # z-score that the threshold is set to, to decide what is True or False in trend_rate
+     'width': 5  # for a high/low to qualify as a williams fractal, it must be the highest/lowest of this many bars
+     },
+    {'pair': 'btcusdt',
+     'tf': '30m',
+     'bias_lb': 500,  # long-term ema trend for bullish/bearish bias
+     'bias_roc_lb': 8,  # lookback for judging if the long-term ema is moving up or down
+     'source': 'vwap',  # timeseries source for trend_rate calculation
+     'bars': 10,  # lookback for the ROC that is applied to the source in trend_rate
+     'mult': 9,  # bars * mult gives the lookback window for finding the rolling mean and stdev of the ROC series
+     'z': 2,  # z-score that the threshold is set to, to decide what is True or False in trend_rate
+     'width': 5  # for a high/low to qualify as a williams fractal, it must be the highest/lowest of this many bars
+     },
+    {'pair': 'btcusdt',
+     'tf': '30m',
+     'bias_lb': 750,  # long-term ema trend for bullish/bearish bias
      'bias_roc_lb': 8,  # lookback for judging if the long-term ema is moving up or down
      'source': 'vwap',  # timeseries source for trend_rate calculation
      'bars': 10,  # lookback for the ROC that is applied to the source in trend_rate
@@ -122,13 +237,24 @@ agent_params = [
 ]
 
 live = False
-streams = [(agent['pair'], agent['tf']) for agent in agent_params]
-stream = set_stream(streams, live)
 
 # Run Program
-agents = {f"{params['pair']}@kline_{params['tf']}": Agent(params, live) for params in agent_params}
+agents = {f"{params['pair']}@kline_{params['tf']}_{x:02}": Agent(params, live) for x, params in enumerate(agent_params)}
+print('agents:')
+pprint(agents)
 
-ws = websocket.WebSocketApp(stream, on_open=on_open, on_close=on_close, on_message=on_message)
+streams_list = list(set([(f"{agent['pair']}@kline_{agent['tf']}", agent['pair'], agent['tf']) for agent in agent_params]))
+ws_feed = build_feed(streams_list, live)
+print(ws_feed)
+
+streams = init_streams(streams_list, agents, live)
+print('streams:')
+pprint(streams)
+
+
+# streams = {s[0]: Ohlc_Stream(s, live) for s in streams_list}
+
+ws = websocket.WebSocketApp(ws_feed, on_open=on_open, on_close=on_close, on_message=on_message)
 ws.run_forever()
 
 # FUNCTIONS

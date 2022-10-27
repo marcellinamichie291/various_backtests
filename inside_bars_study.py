@@ -580,28 +580,27 @@ def calc_pnl_series(pnls, risk_pct):
 # TODO i really need to walk-forward test all of it
 
 if __name__ == '__main__':
-    start = time.perf_counter()
 
-    pairs = ['BTCUSDT', 'ETHUSDT', 'ETHBTC', 'BNBUSDT', 'XRPUSDT', 'ADAUSDT', 'SOLUSDT', 'DOGEUSDT', 'DOTUSDT',
-             'MATICUSDT']
-    # pairs = ['BTCUSDT']
+    # pairs = ['BTCUSDT', 'ETHUSDT', 'ETHBTC', 'BNBUSDT', 'XRPUSDT', 'ADAUSDT', 'SOLUSDT', 'DOGEUSDT', 'DOTUSDT',
+    #          'MATICUSDT']
+    pairs = ['BTCUSDT', 'ETHUSDT', 'ETHBTC']
 
     t_type = 'trend'  # trend type ('trend' or 'breakout')
 
-    # timeframes = {'3min': 3, '5min': 5, '10min': 10, '30min': 30, '1h': 60}
-    timeframes = {'10min': 10}
-    # tr_sources = ['close', 'vwma']
-    tr_sources = ['close']  # trend rate source ('close' or 'vwma')
-    # z_scores = [1, 1.5, 2, 2.5, 3]
-    z_scores = [2]
-    # bars = list(range(8, 19, 2))
-    bars = [10]
-    # mults = range(5, 11)
-    mults = [9]
-    # windows = [350, 450, 550, 650, 750]
-    windows = [450]
-    # lookbacks = range(20)  # [10, 15, 20, 25]
-    lookbacks = [8]
+    timeframes = {'5min': 5, '15min': 15, '30min': 30, '1h': 60}
+    # timeframes = {'15min': 15}
+    tr_sources = ['close', 'vwma']
+    # tr_sources = ['close']
+    z_scores = [1, 1.5, 2, 2.5, 3]
+    # z_scores = [2]
+    bars = list(range(8, 19, 2))
+    # bars = [10]
+    mults = range(5, 11)
+    # mults = [9]
+    windows = [200, 400, 600, 800, 1000]
+    # windows = [450]
+    lookbacks = range(2, 20, 2)
+    # lookbacks = [8]
     # atr_vals = range(0, 5)
     atr_vals = [0]
 
@@ -611,6 +610,8 @@ if __name__ == '__main__':
     num_tests = (len(pairs) * len(timeframes.keys()) * len(tr_sources) * len(z_scores)
                  * len(bars) * len(mults) * len(windows) * len(lookbacks) * len(atr_vals))
     print(f"number of tests: {num_tests}")
+
+    start = time.perf_counter()
 
     for pair in pairs:
         print(pair)
@@ -622,7 +623,7 @@ if __name__ == '__main__':
             data = resample(data, tf)
             for source, z, bar, mult, window, lb, atr_val in it.product(tr_sources, z_scores, bars, mults, windows,
                                                                         lookbacks, atr_vals):
-                print(f"{tf = } {z = } {bar = } {mult = } {window = } {lb = } {atr_val = }")
+                # print(f"{tf = } {source = } {z = } {bar = } {mult = } {window = } {lb = } {atr_val = }")
                 df = ib_signals(data, t_type, z, bar, mult, source, window, lb, atr_val)
                 df = test_frac_swing(df)
                 # plot_fractals(data, 1440)
