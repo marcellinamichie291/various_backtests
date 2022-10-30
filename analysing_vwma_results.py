@@ -17,7 +17,7 @@ pd.set_option('display.max_rows', None)
 pd.set_option('display.expand_frame_repr', False)
 pd.set_option('display.precision', 4)
 
-df = pd.read_pickle('results_all_tfs.pkl')
+df = pd.read_pickle('results.pkl')
 # df_v = pd.read_pickle('vwma_results.pkl')
 # df_c = pd.read_pickle('close_results.pkl')
 # df_a = pd.read_pickle('results_all_tfs.pkl')
@@ -124,6 +124,17 @@ def avg_win_avg_loss(pnls_r):
 def modified_winrate(pnls_r):
     pass
 
+def convert_tf(tf):
+    timeframes = {
+        '1min': '1m',
+        '5min': '5m',
+        '15min': '15m',
+        '30min': '30m',
+        '1h': '1h',
+        '4h': '4h',
+        '12h': '12h',
+    }
+    return timeframes[tf]
 
 res_dict = {}
 res_count = 0
@@ -141,14 +152,15 @@ for row in df.itertuples():
         sqn = get_sqn(all_rs)
         sqn2 = get_modified_sqn(all_rs)
         win_rate = get_win_rate(all_rs)
-        res_dict[res_count] = {'timeframe': row.timeframe,
+        res_dict[res_count] = {'pair': row.pair,
+                               'tf': convert_tf(row.timeframe),
+                               'bias_lb': row.ema_window,
+                               'bias_roc_lb': row.lookback,
                                'source': row.source,
-                               'z score': row.z_score,
                                'bars': row.bars,
                                'mult': row.mult,
-                               'ema': row.ema_window,
-                               'lookback': row.lookback,
-                               'atr': row.atr,
+                               'z': row.z_score,
+                               'width': row.width,
                                'trades': len(all_rs),
                                'pnl_pct': ((all_bals[-1] / all_bals[0]) - 1) * 100,
                                'sharpe': sharpe,
@@ -173,4 +185,8 @@ res_df['score'] = (res_df.pnl_pct.rank() +
                    res_df.sqn_modified.rank() +
                    res_df.winrate.rank()
                    / 8)
-print(res_df.sort_values('score', ascending=False).head(100))
+# print(res_df.sort_values('score', ascending=False).reset_index(drop=True).head(100))
+settings = (res_df.sort_values('score', ascending=False).reset_index(drop=True).head(20)
+.loc[:, ['pair', 'tf', 'bias_lb', 'bias_roc_lb', 'source', 'bars', 'mult', 'z', 'width']])
+print(settings)
+settings.to_pickle('settings.pkl')

@@ -20,6 +20,8 @@ import time
 from pprint import pprint, pformat
 from unicorn_binance_websocket_api.manager import BinanceWebSocketApiManager
 
+all_start = time.perf_counter()
+
 # CONFIGURATION
 pd.set_option('display.max_rows', None)
 pd.set_option('display.expand_frame_repr', False)
@@ -33,28 +35,43 @@ def on_open(ws):
     print('connection opened')
 
 
-def on_close(ws):
-    print('connection closed')
+def on_close(ws, close_status_code, close_msg):
+    # Because on_close was triggered, we know the opcode = 8
+    print("connection closed")
+    if close_status_code or close_msg:
+        print("close status code: " + str(close_status_code))
+        print("close message: " + str(close_msg))
 
 
 def on_message(ws, msg):
     start = time.perf_counter()
     details = parse_msg(msg)
     stream = streams[details['stream']]
-    print(f"updating {stream.id}")
+    # print(f"updating {stream.id}")
     stream.prices.append(details['price'])
     stream.volumes.append(details['volume'])
     if details['close']:
-        print(f'updating ohlc for {stream.id}')
+        # print(f'updating ohlc for {stream.id}')
         stream.update_ohlc(details['data'])
         for agent_id in agents.keys():
             if details['stream'] in agent_id:
                 agent = agents[agent_id]
-                print(f"running calcs for {agent_id}")
+                # print(f"running calcs for {agent_id}")
                 agent.run_calcs(details['data'], stream.ohlc)
-                print('done')
+                # print('done')
     end = time.perf_counter()
-    print(end-start)
+    # print(round(end-start, 6))
+
+
+def on_ping(ws, msg):
+    ping_time = time.perf_counter()
+    measure = round(ping_time - all_start)
+    print(f"Pinged at {measure//3600}h {(measure//60)%60}m {measure%60}s")
+    print(msg)
+
+
+def on_error(ws, err):
+    print(err)
 
 
 def parse_msg(msg):
@@ -110,152 +127,47 @@ ctx = getcontext()
 ctx.prec = 12
 
 # Settings
-settings_df = pd.read_pickle('results_all_tfs.pkl')
+agent_params = pd.read_pickle('settings.pkl').to_dict('records')
 
-
-agent_params = [
-    {'pair': 'btcusdt',
-     'tf': '1m',
-     'bias_lb': 450,  # long-term ema trend for bullish/bearish bias
-     'bias_roc_lb': 8,  # lookback for judging if the long-term ema is moving up or down
-     'source': 'vwap',  # timeseries source for trend_rate calculation
-     'bars': 10,  # lookback for the ROC that is applied to the source in trend_rate
-     'mult': 9,  # bars * mult gives the lookback window for finding the rolling mean and stdev of the ROC series
-     'z': 2,  # z-score that the threshold is set to, to decide what is True or False in trend_rate
-     'width': 5  # for a high/low to qualify as a williams fractal, it must be the highest/lowest of this many bars
-     },
-    {'pair': 'btcusdt',
-     'tf': '1m',
-     'bias_lb': 500,  # long-term ema trend for bullish/bearish bias
-     'bias_roc_lb': 8,  # lookback for judging if the long-term ema is moving up or down
-     'source': 'vwap',  # timeseries source for trend_rate calculation
-     'bars': 10,  # lookback for the ROC that is applied to the source in trend_rate
-     'mult': 9,  # bars * mult gives the lookback window for finding the rolling mean and stdev of the ROC series
-     'z': 2,  # z-score that the threshold is set to, to decide what is True or False in trend_rate
-     'width': 5  # for a high/low to qualify as a williams fractal, it must be the highest/lowest of this many bars
-     },
-    {'pair': 'btcusdt',
-     'tf': '1m',
-     'bias_lb': 750,  # long-term ema trend for bullish/bearish bias
-     'bias_roc_lb': 8,  # lookback for judging if the long-term ema is moving up or down
-     'source': 'vwap',  # timeseries source for trend_rate calculation
-     'bars': 10,  # lookback for the ROC that is applied to the source in trend_rate
-     'mult': 9,  # bars * mult gives the lookback window for finding the rolling mean and stdev of the ROC series
-     'z': 2,  # z-score that the threshold is set to, to decide what is True or False in trend_rate
-     'width': 5  # for a high/low to qualify as a williams fractal, it must be the highest/lowest of this many bars
-     },
-    {'pair': 'btcusdt',
-     'tf': '5m',
-     'bias_lb': 450,  # long-term ema trend for bullish/bearish bias
-     'bias_roc_lb': 8,  # lookback for judging if the long-term ema is moving up or down
-     'source': 'vwap',  # timeseries source for trend_rate calculation
-     'bars': 10,  # lookback for the ROC that is applied to the source in trend_rate
-     'mult': 9,  # bars * mult gives the lookback window for finding the rolling mean and stdev of the ROC series
-     'z': 2,  # z-score that the threshold is set to, to decide what is True or False in trend_rate
-     'width': 5  # for a high/low to qualify as a williams fractal, it must be the highest/lowest of this many bars
-     },
-    {'pair': 'btcusdt',
-     'tf': '5m',
-     'bias_lb': 500,  # long-term ema trend for bullish/bearish bias
-     'bias_roc_lb': 8,  # lookback for judging if the long-term ema is moving up or down
-     'source': 'vwap',  # timeseries source for trend_rate calculation
-     'bars': 10,  # lookback for the ROC that is applied to the source in trend_rate
-     'mult': 9,  # bars * mult gives the lookback window for finding the rolling mean and stdev of the ROC series
-     'z': 2,  # z-score that the threshold is set to, to decide what is True or False in trend_rate
-     'width': 5  # for a high/low to qualify as a williams fractal, it must be the highest/lowest of this many bars
-     },
-    {'pair': 'btcusdt',
-     'tf': '5m',
-     'bias_lb': 750,  # long-term ema trend for bullish/bearish bias
-     'bias_roc_lb': 8,  # lookback for judging if the long-term ema is moving up or down
-     'source': 'vwap',  # timeseries source for trend_rate calculation
-     'bars': 10,  # lookback for the ROC that is applied to the source in trend_rate
-     'mult': 9,  # bars * mult gives the lookback window for finding the rolling mean and stdev of the ROC series
-     'z': 2,  # z-score that the threshold is set to, to decide what is True or False in trend_rate
-     'width': 5  # for a high/low to qualify as a williams fractal, it must be the highest/lowest of this many bars
-     },
-    {'pair': 'btcusdt',
-     'tf': '15m',
-     'bias_lb': 450,  # long-term ema trend for bullish/bearish bias
-     'bias_roc_lb': 8,  # lookback for judging if the long-term ema is moving up or down
-     'source': 'vwap',  # timeseries source for trend_rate calculation
-     'bars': 10,  # lookback for the ROC that is applied to the source in trend_rate
-     'mult': 9,  # bars * mult gives the lookback window for finding the rolling mean and stdev of the ROC series
-     'z': 2,  # z-score that the threshold is set to, to decide what is True or False in trend_rate
-     'width': 5  # for a high/low to qualify as a williams fractal, it must be the highest/lowest of this many bars
-     },
-    {'pair': 'btcusdt',
-     'tf': '15m',
-     'bias_lb': 500,  # long-term ema trend for bullish/bearish bias
-     'bias_roc_lb': 8,  # lookback for judging if the long-term ema is moving up or down
-     'source': 'vwap',  # timeseries source for trend_rate calculation
-     'bars': 10,  # lookback for the ROC that is applied to the source in trend_rate
-     'mult': 9,  # bars * mult gives the lookback window for finding the rolling mean and stdev of the ROC series
-     'z': 2,  # z-score that the threshold is set to, to decide what is True or False in trend_rate
-     'width': 5  # for a high/low to qualify as a williams fractal, it must be the highest/lowest of this many bars
-     },
-    {'pair': 'btcusdt',
-     'tf': '15m',
-     'bias_lb': 750,  # long-term ema trend for bullish/bearish bias
-     'bias_roc_lb': 8,  # lookback for judging if the long-term ema is moving up or down
-     'source': 'vwap',  # timeseries source for trend_rate calculation
-     'bars': 10,  # lookback for the ROC that is applied to the source in trend_rate
-     'mult': 9,  # bars * mult gives the lookback window for finding the rolling mean and stdev of the ROC series
-     'z': 2,  # z-score that the threshold is set to, to decide what is True or False in trend_rate
-     'width': 5  # for a high/low to qualify as a williams fractal, it must be the highest/lowest of this many bars
-     },
-    {'pair': 'btcusdt',
-     'tf': '30m',
-     'bias_lb': 450,  # long-term ema trend for bullish/bearish bias
-     'bias_roc_lb': 8,  # lookback for judging if the long-term ema is moving up or down
-     'source': 'vwap',  # timeseries source for trend_rate calculation
-     'bars': 10,  # lookback for the ROC that is applied to the source in trend_rate
-     'mult': 9,  # bars * mult gives the lookback window for finding the rolling mean and stdev of the ROC series
-     'z': 2,  # z-score that the threshold is set to, to decide what is True or False in trend_rate
-     'width': 5  # for a high/low to qualify as a williams fractal, it must be the highest/lowest of this many bars
-     },
-    {'pair': 'btcusdt',
-     'tf': '30m',
-     'bias_lb': 500,  # long-term ema trend for bullish/bearish bias
-     'bias_roc_lb': 8,  # lookback for judging if the long-term ema is moving up or down
-     'source': 'vwap',  # timeseries source for trend_rate calculation
-     'bars': 10,  # lookback for the ROC that is applied to the source in trend_rate
-     'mult': 9,  # bars * mult gives the lookback window for finding the rolling mean and stdev of the ROC series
-     'z': 2,  # z-score that the threshold is set to, to decide what is True or False in trend_rate
-     'width': 5  # for a high/low to qualify as a williams fractal, it must be the highest/lowest of this many bars
-     },
-    {'pair': 'btcusdt',
-     'tf': '30m',
-     'bias_lb': 750,  # long-term ema trend for bullish/bearish bias
-     'bias_roc_lb': 8,  # lookback for judging if the long-term ema is moving up or down
-     'source': 'vwap',  # timeseries source for trend_rate calculation
-     'bars': 10,  # lookback for the ROC that is applied to the source in trend_rate
-     'mult': 9,  # bars * mult gives the lookback window for finding the rolling mean and stdev of the ROC series
-     'z': 2,  # z-score that the threshold is set to, to decide what is True or False in trend_rate
-     'width': 5  # for a high/low to qualify as a williams fractal, it must be the highest/lowest of this many bars
-     },
-]
+# agent_params = [
+#     {'pair': 'btcusdt',
+#      'tf': '1m',
+#      'bias_lb': 450,  # long-term ema trend for bullish/bearish bias
+#      'bias_roc_lb': 8,  # lookback for judging if the long-term ema is moving up or down
+#      'source': 'vwap',  # timeseries source for trend_rate calculation
+#      'bars': 10,  # lookback for the ROC that is applied to the source in trend_rate
+#      'mult': 9,  # bars * mult gives the lookback window for finding the rolling mean and stdev of the ROC series
+#      'z': 2,  # z-score that the threshold is set to, to decide what is True or False in trend_rate
+#      'width': 5  # for a high/low to qualify as a williams fractal, it must be the highest/lowest of this many bars
+#      }
+# ]
 
 live = False
 
 # Run Program
 agents = {f"{params['pair']}@kline_{params['tf']}_{x:02}": Agent(params, live) for x, params in enumerate(agent_params)}
-print('agents:')
-pprint(agents)
+# print('agents:')
+# pprint(agents)
 
 streams_list = list(set([(f"{agent['pair']}@kline_{agent['tf']}", agent['pair'], agent['tf']) for agent in agent_params]))
 ws_feed = build_feed(streams_list, live)
 print(ws_feed)
 
 streams = init_streams(streams_list, agents, live)
-print('streams:')
-pprint(streams)
+# print('streams:')
+# pprint(streams)
 
 
 # streams = {s[0]: Ohlc_Stream(s, live) for s in streams_list}
 
-ws = websocket.WebSocketApp(ws_feed, on_open=on_open, on_close=on_close, on_message=on_message)
+ws = websocket.WebSocketApp(ws_feed, on_open=on_open, on_close=on_close,
+                            on_message=on_message, on_ping=on_ping,
+                            on_error=on_error)
 ws.run_forever()
+
+all_end = time.perf_counter()
+elapsed = round(all_end - all_start)
+print(f"Time taken: {elapsed//3600}h {(elapsed//60)%60}m {elapsed%60}s")
 
 # FUNCTIONS
 

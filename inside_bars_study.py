@@ -416,7 +416,7 @@ def test_frac_swing(df):
     return df
 
 
-def ib_signals(df, trend_type, z, bars, mult, source, ema_len, ema_lb, atr_val=0):
+def ib_signals(df, trend_type, z, bars, mult, source, ema_len, ema_lb, width):
     df = inside_bars(df)
 
     if trend_type == 'trend':
@@ -425,7 +425,7 @@ def ib_signals(df, trend_type, z, bars, mult, source, ema_len, ema_lb, atr_val=0
         df = ema_breakout(df, ema_len, ema_len)
 
     df = trend_rate(df, z, bars, mult, source)
-    df = williams_fractals(df, 5, atr_val)
+    df = williams_fractals(df, width)
     df = entry_signals(df)
 
     return df
@@ -583,7 +583,7 @@ if __name__ == '__main__':
 
     # pairs = ['BTCUSDT', 'ETHUSDT', 'ETHBTC', 'BNBUSDT', 'XRPUSDT', 'ADAUSDT', 'SOLUSDT', 'DOGEUSDT', 'DOTUSDT',
     #          'MATICUSDT']
-    pairs = ['BTCUSDT', 'ETHUSDT', 'ETHBTC']
+    pairs = ['BTCUSDT']
 
     t_type = 'trend'  # trend type ('trend' or 'breakout')
 
@@ -598,17 +598,17 @@ if __name__ == '__main__':
     mults = range(5, 11)
     # mults = [9]
     windows = [200, 400, 600, 800, 1000]
-    # windows = [450]
-    lookbacks = range(2, 20, 2)
+    # windows = [600]
+    lookbacks = range(2, 15, 3)
     # lookbacks = [8]
-    # atr_vals = range(0, 5)
-    atr_vals = [0]
+    # wf_widths = [3, 5, 7]
+    wf_widths = [3, 5]
 
     results = {}
     counter = 0
 
     num_tests = (len(pairs) * len(timeframes.keys()) * len(tr_sources) * len(z_scores)
-                 * len(bars) * len(mults) * len(windows) * len(lookbacks) * len(atr_vals))
+                 * len(bars) * len(mults) * len(windows) * len(lookbacks) * len(wf_widths))
     print(f"number of tests: {num_tests}")
 
     start = time.perf_counter()
@@ -621,10 +621,10 @@ if __name__ == '__main__':
             # data = hidden_flow(data, 100)
             data = vwma(data, timeframes[tf])
             data = resample(data, tf)
-            for source, z, bar, mult, window, lb, atr_val in it.product(tr_sources, z_scores, bars, mults, windows,
-                                                                        lookbacks, atr_vals):
+            for source, z, bar, mult, window, lb, width in it.product(tr_sources, z_scores, bars, mults, windows,
+                                                                        lookbacks, wf_widths):
                 # print(f"{tf = } {source = } {z = } {bar = } {mult = } {window = } {lb = } {atr_val = }")
-                df = ib_signals(data, t_type, z, bar, mult, source, window, lb, atr_val)
+                df = ib_signals(data, t_type, z, bar, mult, source, window, lb, width)
                 df = test_frac_swing(df)
                 # plot_fractals(data, 1440)
 
@@ -640,7 +640,8 @@ if __name__ == '__main__':
                 med_short = short_rs.median()
                 tot_short = short_rs.sum()
 
-                df['all_rs'] = pd.concat([long_rs, short_rs]).sort_index().reindex(df.index)
+                ar_series = pd.concat([long_rs, short_rs]).sort_index()
+                df['all_rs'] = ar_series.loc[~ar_series.index.duplicated()].reindex(df.index)
                 all_rs = list(pd.concat([long_rs, short_rs]).sort_index())
                 # print(all_rs)
 
@@ -653,18 +654,21 @@ if __name__ == '__main__':
 
                 pos_r = [r for r in all_rs if r > 0]
                 neg_r = [r for r in all_rs if r <= 0]
-                if all_rs:
-                    win_rate = round(len(pos_r) / len(all_rs), 2)
-                    if neg_r:
-                        profit_factor = stats.mean(pos_r) / abs(stats.mean(neg_r))
-                    else:
-                        profit_factor = 10
+                if pos_r:
+                    avg_win = stats.mean(pos_r)
                 else:
-                    win_rate = 0
-                    profit_factor = 0
+                    avg_win = 0
+                if neg_r:
+                    avg_loss = abs(stats.mean(neg_r))
+                else:
+                    avg_loss = 1
+
+                profit_factor = avg_win / avg_loss
+                win_rate = len(pos_r) / len(all_rs)
+                exp_return = profit_factor * win_rate
 
                 results[counter] = {'pair': pair, 'timeframe': tf, 'type': t_type, 'source': source, 'z_score': z,
-                                    'bars': bar, 'mult': mult, 'ema_window': window, 'lookback': lb, 'atr': atr_val,
+                                    'bars': bar, 'mult': mult, 'ema_window': window, 'lookback': lb, 'width': width,
                                     'num_signals': len_2, 'mean_long_r': mean_long, 'med_long_r': med_long,
                                     'total_long_r': tot_long, 'mean_short_r': mean_short, 'med_short_r': med_short,
                                     'total_short_r': tot_short, 'mean_r': mean_r, 'med_r': med_r, 'total_r': tot_r,
@@ -686,4 +690,4 @@ if __name__ == '__main__':
 
     end = time.perf_counter()
     elapsed = round(end - start)
-    print(f"Time taken: {elapsed // 60}m {elapsed % 60}s")
+    print(f"Time taken: {elapsed//3600}h {(elapsed//60)%60}m {elapsed%60}s ({elapsed/num_tests:.3f}s/test)")
