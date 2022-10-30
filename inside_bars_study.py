@@ -318,10 +318,14 @@ def process_trade(df, group, direction):
     orig_last = trade.index[-1]
     trade = trade.reset_index(drop=True)
     new_last = trade.index[-1]
+
+    curr_stdev = trade.close.std()
+    min_inval = curr_stdev / 100
+
     entry = trade.at[0, 'open']
     inval = trade.at[0, f'{direction}_stops']
     ex = trade.at[new_last, f'{direction}_stops']
-    r_val = abs(entry - inval)
+    r_val = max(abs(entry - inval), min_inval)
     if direction == 'long':
         trade_r = (ex - entry) / r_val
         trade[f'{direction}_pnl_evo'] = (trade.close - entry) / r_val
