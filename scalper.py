@@ -67,7 +67,6 @@ def on_ping(ws, msg):
     ping_time = time.perf_counter()
     measure = round(ping_time - all_start)
     print(f"Pinged at {measure//3600}h {(measure//60)%60}m {measure%60}s")
-    print(msg)
 
 
 def on_error(ws, err):

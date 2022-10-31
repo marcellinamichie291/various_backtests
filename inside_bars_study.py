@@ -1,5 +1,5 @@
 import datetime
-
+from pandarallel import pandarallel
 import pandas as pd
 import keys
 from binance import Client
@@ -18,6 +18,8 @@ import numpy as np
 pd.set_option('display.max_rows', None)
 pd.set_option('display.expand_frame_repr', False)
 pd.set_option('display.precision', 4)
+
+pandarallel.initialize()
 
 # CONSTANTS
 client = Client(keys.bPkey, keys.bSkey)
@@ -668,8 +670,12 @@ if __name__ == '__main__':
                     avg_loss = 1
 
                 profit_factor = avg_win / avg_loss
-                win_rate = len(pos_r) / len(all_rs)
-                exp_return = profit_factor * win_rate
+                if all_rs:
+                    win_rate = len(pos_r) / len(all_rs)
+                    exp_return = profit_factor * win_rate
+                else:
+                    win_rate = 0
+                    exp_return = 0
 
                 results[counter] = {'pair': pair, 'timeframe': tf, 'type': t_type, 'source': source, 'z_score': z,
                                     'bars': bar, 'mult': mult, 'ema_window': window, 'lookback': lb, 'width': width,
