@@ -1,5 +1,4 @@
 import datetime
-from pandarallel import pandarallel
 import pandas as pd
 import keys
 from binance import Client
@@ -19,7 +18,8 @@ pd.set_option('display.max_rows', None)
 pd.set_option('display.expand_frame_repr', False)
 pd.set_option('display.precision', 4)
 
-pandarallel.initialize()
+# from pandarallel import pandarallel
+# pandarallel.initialize()
 
 # CONSTANTS
 client = Client(keys.bPkey, keys.bSkey)
@@ -578,6 +578,65 @@ def calc_pnl_series(pnls, risk_pct):
     return pd.Series(bal_evo)
 
 
+def process(data, source, z, bar, mult, window, lb, width):
+    # print(f"{tf = } {source = } {z = } {bar = } {mult = } {window = } {lb = } {atr_val = }")
+    df = ib_signals(data, t_type, z, bar, mult, source, window, lb, width)
+    df = test_frac_swing(df)
+    # plot_fractals(data, 1440)
+
+    # long_rs = df.long_pnl_r.loc[df.long_shift]
+    long_rs = df.long_pnl_r.dropna()
+    mean_long = long_rs.mean()
+    med_long = long_rs.median()
+    tot_long = long_rs.sum()
+
+    # short_rs = df.short_pnl_r.loc[df.short_shift]
+    short_rs = df.short_pnl_r.dropna()
+    mean_short = short_rs.mean()
+    med_short = short_rs.median()
+    tot_short = short_rs.sum()
+
+    ar_series = pd.concat([long_rs, short_rs]).sort_index()
+    df['all_rs'] = ar_series.loc[~ar_series.index.duplicated()].reindex(df.index)
+    all_rs = list(pd.concat([long_rs, short_rs]).sort_index())
+
+    mean_r = ar_series.mean()
+    med_r = ar_series.median()
+    tot_r = ar_series.sum()
+
+    df_signals = df.loc[df.long_signal | df.short_signal, :]
+    len_1, len_2 = len(df), len(df_signals)
+
+    pos_r = [r for r in all_rs if r > 0]
+    neg_r = [r for r in all_rs if r <= 0]
+    if pos_r:
+        avg_win = stats.mean(pos_r)
+    else:
+        avg_win = 0
+    if neg_r:
+        avg_loss = abs(stats.mean(neg_r))
+    else:
+        avg_loss = 1
+
+    profit_factor = avg_win / avg_loss
+    if all_rs:
+        win_rate = len(pos_r) / len(all_rs)
+        exp_return = profit_factor * win_rate
+    else:
+        win_rate = 0
+        exp_return = 0
+
+    df['bal_evo'] = calc_pnl_series(df.all_rs.fillna(0), 1)
+    plot_chart(df, pair, t_type, window, bar, 6000, 1500, show=False)
+
+    return {'pair': pair, 'timeframe': tf, 'type': t_type, 'source': source, 'z_score': z,
+                        'bars': bar, 'mult': mult, 'ema_window': window, 'lookback': lb, 'width': width,
+                        'num_signals': len_2, 'mean_long_r': mean_long, 'med_long_r': med_long,
+                        'total_long_r': tot_long, 'mean_short_r': mean_short, 'med_short_r': med_short,
+                        'total_short_r': tot_short, 'mean_r': mean_r, 'med_r': med_r, 'total_r': tot_r,
+                        'win_rate': win_rate, 'profit_factor': profit_factor, 'all_rs': all_rs}
+
+
 # MAIN
 
 # TODO the main pc takes ~0.4s per test. i should split the results into different timeframes and study each one to see
@@ -629,65 +688,9 @@ if __name__ == '__main__':
             data = resample(data, tf)
             for source, z, bar, mult, window, lb, width in it.product(tr_sources, z_scores, bars, mults, windows,
                                                                         lookbacks, wf_widths):
-                # print(f"{tf = } {source = } {z = } {bar = } {mult = } {window = } {lb = } {atr_val = }")
-                df = ib_signals(data, t_type, z, bar, mult, source, window, lb, width)
-                df = test_frac_swing(df)
-                # plot_fractals(data, 1440)
-
-                # long_rs = df.long_pnl_r.loc[df.long_shift]
-                long_rs = df.long_pnl_r.dropna()
-                mean_long = long_rs.mean()
-                med_long = long_rs.median()
-                tot_long = long_rs.sum()
-
-                # short_rs = df.short_pnl_r.loc[df.short_shift]
-                short_rs = df.short_pnl_r.dropna()
-                mean_short = short_rs.mean()
-                med_short = short_rs.median()
-                tot_short = short_rs.sum()
-
-                ar_series = pd.concat([long_rs, short_rs]).sort_index()
-                df['all_rs'] = ar_series.loc[~ar_series.index.duplicated()].reindex(df.index)
-                all_rs = list(pd.concat([long_rs, short_rs]).sort_index())
-                # print(all_rs)
-
-                mean_r = (mean_long + mean_short) / 2
-                med_r = (med_long + med_short) / 2
-                tot_r = tot_long + tot_short
-
-                df_signals = df.loc[df.long_signal | df.short_signal, :]
-                len_1, len_2 = len(df), len(df_signals)
-
-                pos_r = [r for r in all_rs if r > 0]
-                neg_r = [r for r in all_rs if r <= 0]
-                if pos_r:
-                    avg_win = stats.mean(pos_r)
-                else:
-                    avg_win = 0
-                if neg_r:
-                    avg_loss = abs(stats.mean(neg_r))
-                else:
-                    avg_loss = 1
-
-                profit_factor = avg_win / avg_loss
-                if all_rs:
-                    win_rate = len(pos_r) / len(all_rs)
-                    exp_return = profit_factor * win_rate
-                else:
-                    win_rate = 0
-                    exp_return = 0
-
-                results[counter] = {'pair': pair, 'timeframe': tf, 'type': t_type, 'source': source, 'z_score': z,
-                                    'bars': bar, 'mult': mult, 'ema_window': window, 'lookback': lb, 'width': width,
-                                    'num_signals': len_2, 'mean_long_r': mean_long, 'med_long_r': med_long,
-                                    'total_long_r': tot_long, 'mean_short_r': mean_short, 'med_short_r': med_short,
-                                    'total_short_r': tot_short, 'mean_r': mean_r, 'med_r': med_r, 'total_r': tot_r,
-                                    'win_rate': win_rate, 'profit_factor': profit_factor, 'all_rs': all_rs}
+                results[counter] = process(data, source, z, bar, mult, window, lb, width)
                 counter += 1
                 projected_time(counter)
-
-                df['bal_evo'] = calc_pnl_series(df.all_rs.fillna(0), 1)
-                plot_chart(df, pair, t_type, window, bar, 6000, 1500, show=False)
 
     results_df = pd.DataFrame.from_dict(results, orient='index')
     results_df.to_pickle('results.pkl')
