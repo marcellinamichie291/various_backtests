@@ -290,8 +290,8 @@ def ema_trend(df, length, lookback):
 
 
 def entry_signals(df):
-    df['long_signal'] = df.inside_bar & df.trend_down & df.ema_up & (df.inval_low < df.low)
-    df['short_signal'] = df.inside_bar & df.trend_up & df.ema_down & (df.inval_high > df.high)
+    df['long_signal'] = df.inside_bar & df.trend_down & df.ema_up# & (df.inval_low < df.low)
+    df['short_signal'] = df.inside_bar & df.trend_up & df.ema_down# & (df.inval_high > df.high)
 
     return df
 
@@ -347,14 +347,19 @@ def calc_dd(group, direction):
 
 
 def test_frac_swing(df):
+
+    df = williams_fractals(df, width)
+
     # calculate R and invalidation for each signal
     df['long_shift'] = df.long_signal.shift(1, fill_value=False)
     df['long_r'] = ((df.open - df.inval_low) / df.open).clip(lower=0.00001)
     df['long_inval'] = df.inval_low
+    df['long_entry_inval'] = df.low.shift(1).rolling(2).min()
 
     df['short_shift'] = df.short_signal.shift(1, fill_value=False)
     df['short_r'] = ((df.open - df.inval_high) / df.open).clip(lower=0.00001)
     df['short_inval'] = df.inval_high
+    df['short_entry_inval'] = df.high.shift(1).rolling(2).max()
 
     # map out trades by trailing stops using the inval columns
     in_long, long_idx, long_stop, long_stops = False, [], np.nan, []
@@ -368,13 +373,13 @@ def test_frac_swing(df):
 
         if row.long_shift:
             in_long = True
-            long_stop = row.long_inval
+            long_stop = min(row.long_inval, row.long_entry_inval)
         elif row.close < long_stop:
             in_long = False
 
         if row.short_shift:
             in_short = True
-            short_stop = row.short_inval
+            short_stop = max(row.short_inval, row.short_entry_inval)
         elif row.close > short_stop:
             in_short = False
 
@@ -436,31 +441,30 @@ def ib_signals(df, trend_type, z, bars, mult, source, ema_len, ema_lb, width):
         df = ema_breakout(df, ema_len, ema_len)
 
     df = trend_rate(df, z, bars, mult, source)
-    df = williams_fractals(df, width)
     df = entry_signals(df)
 
     return df
 
 
 def plot_chart(df, pair, trend_type, length, roc_bars, tail_bars, head_bars, show):
-    df = (df[['timestamp', 'open', 'high', 'low', 'close', 'volume', 'in_long', 'in_short', 'bal_evo']]
-          .resample('1D', on='timestamp')
-          .agg({'open': 'first',
-                'high': 'max',
-                'low': 'min',
-                'close': 'last',
-                'volume': 'sum',
-                'in_long': 'max',
-                'in_short': 'max',
-                'bal_evo': 'last'}))
+    # df = (df[['timestamp', 'open', 'high', 'low', 'close', 'volume', 'in_long', 'in_short', 'bal_evo']]
+    #       .resample('1D', on='timestamp')
+    #       .agg({'open': 'first',
+    #             'high': 'max',
+    #             'low': 'min',
+    #             'close': 'last',
+    #             'volume': 'sum',
+    #             'in_long': 'max',
+    #             'in_short': 'max',
+    #             'bal_evo': 'last'}))
     # df = df.dropna(how='any')
     df = df.reset_index()
 
-    # df = df.tail(tail_bars)
-    # # df = df.reset_index(drop=True)
-    # if head_bars:
-    #     df = df.head(head_bars)
+    df = df.tail(tail_bars)
     # df = df.reset_index(drop=True)
+    if head_bars:
+        df = df.head(head_bars)
+    df = df.reset_index(drop=True)
 
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
                         vertical_spacing=0.01,
@@ -508,18 +512,32 @@ def plot_chart(df, pair, trend_type, length, roc_bars, tail_bars, head_bars, sho
     #                          ))
 
     # fig.add_trace(go.Scatter(x=df.index,
-    #                          y=df.short_stops,
+    #                          y=df.inval_low,
     #                          opacity=0.7,
     #                          mode='markers',
-    #                          marker=dict(color='red', size=5),
-    #                          name='short stop'))
+    #                          marker=dict(color='orange', size=5),
+    #                          name='inval low'))
     #
     # fig.add_trace(go.Scatter(x=df.index,
-    #                          y=df.long_stops,
+    #                          y=df.inval_high,
     #                          opacity=0.7,
     #                          mode='markers',
-    #                          marker=dict(color='green', size=5),
-    #                          name='long stop'))
+    #                          marker=dict(color='blue', size=5),
+    #                          name='inval high'))
+
+    fig.add_trace(go.Scatter(x=df.index,
+                             y=df.short_stops,
+                             opacity=0.7,
+                             mode='markers',
+                             marker=dict(color='red', size=5),
+                             name='short stops'))
+
+    fig.add_trace(go.Scatter(x=df.index,
+                             y=df.long_stops,
+                             opacity=0.7,
+                             mode='markers',
+                             marker=dict(color='green', size=5),
+                             name='long stops'))
 
     # fig.add_trace(go.Scatter(x=df.index,
     #                          y=df.vwma,
@@ -583,7 +601,7 @@ def calc_pnl_series(pnls, risk_pct):
     return pd.Series(bal_evo)
 
 
-def process(data, source, z, bar, mult, window, lb, width):
+def process(data, source, z, bar, mult, window, lb, width, show_plot):
     # print(f"{tf = } {source = } {z = } {bar = } {mult = } {window = } {lb = } {atr_val = }")
     df = ib_signals(data, t_type, z, bar, mult, source, window, lb, width)
     df = test_frac_swing(df)
@@ -632,7 +650,7 @@ def process(data, source, z, bar, mult, window, lb, width):
         exp_return = 0
 
     df['bal_evo'] = calc_pnl_series(df.all_rs.fillna(0), 1)
-    plot_chart(df, pair, t_type, window, bar, 6000, 1500, show=False)
+    plot_chart(df, pair, t_type, window, bar, 6000, 1500, show=show_plot)
 
     return {'pair': pair, 'timeframe': tf, 'type': t_type, 'source': source, 'z_score': z,
                         'bars': bar, 'mult': mult, 'ema_window': window, 'lookback': lb, 'width': width,
@@ -659,20 +677,20 @@ if __name__ == '__main__':
 
     # timeframes = {'5min': 5, '15min': 15, '30min': 30, '1h': 60}
     timeframes = {'5min': 5}
-    tr_sources = ['close', 'vwma']
-    # tr_sources = ['close']
-    z_scores = [1, 1.5, 2, 2.5, 3]
-    # z_scores = [2]
-    bars = list(range(8, 19, 2))
-    # bars = [10]
-    mults = range(5, 11)
-    # mults = [9]
-    windows = [200, 400, 600, 800, 1000]
-    # windows = [600]
+    # tr_sources = ['close', 'vwma']
+    tr_sources = ['close']
+    # z_scores = [1, 1.5, 2, 2.5, 3]
+    z_scores = [2]
+    # bars = list(range(8, 19, 2))
+    bars = [10]
+    # mults = range(5, 11)
+    mults = [9]
+    # windows = [200, 400, 600, 800, 1000]
+    windows = [600]
     # lookbacks = range(2, 15, 3)
     lookbacks = [8]
     # wf_widths = [3, 5, 7]
-    wf_widths = [3, 5]
+    wf_widths = [5]
 
     results = {}
     counter = 0
@@ -693,17 +711,13 @@ if __name__ == '__main__':
             data = resample(data, tf)
             for source, z, bar, mult, window, lb, width in it.product(tr_sources, z_scores, bars, mults, windows,
                                                                         lookbacks, wf_widths):
-                results[counter] = process(data, source, z, bar, mult, window, lb, width)
+                results[counter] = process(data, source, z, bar, mult, window, lb, width, show_plot=True)
                 counter += 1
                 projected_time(counter)
 
     results_df = pd.DataFrame.from_dict(results, orient='index')
     results_df.to_pickle('results.pkl')
-    print(results_df.loc[
-              (results_df.num_signals > 50)
-              # & (results_df.med_r > 0)
-          ]
-          .sort_values('total_r', ascending=False).head(30))
+    print(results_df.loc[results_df.num_signals > 50].sort_values('total_r', ascending=False).head(30))
 
 
     end = time.perf_counter()

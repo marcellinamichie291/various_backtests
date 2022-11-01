@@ -35,6 +35,8 @@ class Agent():
         self.z = params['z']
         self.width = params['width']
         self.name = f"{self.pair}_{self.timeframe}_{self.bias_lb}_{self.source}_{self.bars}_{self.mult}_{self.z}_{self.width}"
+        self.position = 0
+        self.inval = None
 
         if live:
             self.client = Client(api_key=keys.bPkey, api_secret=keys.bSkey)
@@ -81,7 +83,7 @@ class Agent():
         self.df['tr2'] = abs(self.df.high - self.df.close.shift(1))
         self.df['tr3'] = abs(self.df.low - self.df.close.shift(1))
         self.df['tr'] = self.df[['tr1', 'tr2', 'tr3']].max(axis=1)
-        self.df[f'atr-{lb}'] = self.df['tr'].ewm(lb).mean()
+        self.df['atr'] = self.df['tr'].ewm(lb).mean()
         self.df.drop(['tr1', 'tr2', 'tr3', 'tr'], axis=1, inplace=True)
 
     def williams_fractals(self):
@@ -98,39 +100,78 @@ class Agent():
         self.df['inval_low'] = self.df.fractal_low.interpolate('pad')
 
     def entry_signals(self):
-        self.df['long_signal'] = (self.df.inside_bar & self.df.trend_down &
-                                  self.df.ema_up & (self.df.inval_low < self.df.low))
-        self.df['short_signal'] = (self.df.inside_bar & self.df.trend_up &
-                                   self.df.ema_down & (self.df.inval_high > self.df.high))
+        self.df['long_signal'] = self.df.inside_bar & self.df.trend_down & self.df.ema_up
+        self.df['long_entry_inval'] = self.df.low.shift(1).rolling(2).min()
+        self.df['short_signal'] = self.df.inside_bar & self.df.trend_up & self.df.ema_down
+        self.df['short_entry_inval'] = self.df.high.shift(1).rolling(2).max()
+
+    def open_trade(self):
+        last = self.df.to_dict('records')[-1]
+
+        price = last['open']
+        long_inval = min(last['inval_low'], last['long_entry_inval'])
+        short_inval = max(last['inval_high'], last['short_entry_inval'])
+        vol_delta = 'positive vol delta' if last['vol_delta'] > 0 else 'negative vol delta'
+
+        if last['long_signal']:
+            self.position = 1
+            self.inval = long_inval
+            now = datetime.datetime.now().strftime('%d/%m/%y %H:%M')
+            note = f"{self.pair} {self.timeframe} long signal @ ${price}, {long_inval = }, {vol_delta}"
+            print(now, note)
+            pb.push_note(title=now, body=note)
+        if last['short_signal']:
+            self.position = -1
+            self.inval = short_inval
+            now = datetime.datetime.now().strftime('%d/%m/%y %H:%M')
+            note = f"{self.pair} {self.timeframe} short signal @ ${price}, {short_inval = }, {vol_delta}"
+            print(now, note)
+            pb.push_note(title=now, body=note)
+
+    def trail_stop(self, method, mult=1):
+        if method == 'fractals':
+            self.williams_fractals()
+        elif method == 'atr':
+            self.calc_atr(10)
+            self.df['inval_high'] = self.df.vwap + (self.df.atr * mult)
+            self.df['inval_low'] = self.df.vwap - (self.df.atr * mult)
+
+        last_idx = self.df.index[-1]
+        if self.position > 0:
+            new_inval = self.df.at[last_idx, 'inval_low']
+            updated_inval = min(self.inval, new_inval)
+            if updated_inval > self.df.at[last_idx, 'low']:
+                print(f"{self.pair} {self.timeframe} long stopped out")
+            return updated_inval
+        elif self.position < 0:
+            new_inval = self.df.at[last_idx, 'inval_high']
+            updated_inval = max(self.inval, new_inval)
+            if updated_inval < self.df.at[last_idx, 'high']:
+                print(f"{self.pair} {self.timeframe} short stopped out")
+            return updated_inval
 
     def run_calcs(self, data, ohlc_data):
         # print(1)
         self.make_dataframe(ohlc_data)
         # print(2)
-        self.inside_bars()
-        # print(3)
-        self.ema_trend()
-        # print(4)
-        self.trend_rate()
-        # print(5)
-        self.williams_fractals()
-        # print(6)
-        self.entry_signals()
-        # print(7)
-
-        last = self.df.to_dict('records')[-1]
-
-        price = last['open']
-        invalidation = last['inval_low']
-        vol_delta = 'positive vol delta' if last['vol_delta'] > 0 else 'negative vol delta'
-
-        if last['long_signal']:
-            now = datetime.datetime.now().strftime('%d/%m/%y %H:%M')
-            note = f"{self.pair} {self.timeframe} long signal @ ${price}, {invalidation = }, {vol_delta}"
-            print(now, note)
-            pb.push_note(title=now, body=note)
-        if last['short_signal']:
-            now = datetime.datetime.now().strftime('%d/%m/%y %H:%M')
-            note = f"{self.pair} {self.timeframe} short signal @ ${price}, {invalidation = }, {vol_delta}"
-            print(now, note)
-            pb.push_note(title=now, body=note)
+        if self.position == 0:
+            self.inside_bars()
+            # print(3)
+            self.ema_trend()
+            # print(4)
+            self.trend_rate()
+            # print(5)
+            self.williams_fractals()
+            # print(6)
+            self.entry_signals()
+            # print(7)
+            self.open_trade()
+            # print(8
+        else:
+            # check if position has stopped out
+            self.inval = self.trail_stop('fractals')
+            print(9)
+            pos = 'long' if self.position > 0 else 'short'
+            last_idx = self.df.index[-1]
+            dist = (self.df.at[last_idx, 'close'] - self.inval) / self.df.at[last_idx, 'close']
+            print(f"{self.pair} {self.timeframe} currently in {pos} position, {dist:.3%} from trailing stop")
