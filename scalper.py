@@ -47,26 +47,23 @@ def on_message(ws, msg):
     start = time.perf_counter()
     details = parse_msg(msg)
     stream = streams[details['stream']]
-    # print(f"updating {stream.id}")
     stream.prices.append(details['price'])
     stream.volumes.append(details['volume'])
     if details['close']:
-        # print(f'updating ohlc for {stream.id}')
         stream.update_ohlc(details['data'])
         for agent_id in agents.keys():
             if details['stream'] in agent_id:
                 agent = agents[agent_id]
                 # print(f"running calcs for {agent_id}")
                 agent.run_calcs(details['data'], stream.ohlc)
-                # print('done')
-    end = time.perf_counter()
+    # end = time.perf_counter()
     # print(round(end-start, 6))
 
 
 def on_ping(ws, msg):
     ping_time = time.perf_counter()
     measure = round(ping_time - all_start)
-    print(f"Pinged at {measure//3600}h {(measure//60)%60}m {measure%60}s")
+    # print(f"Pinged at {measure//3600}h {(measure//60)%60}m {measure%60}s")
 
 
 def on_error(ws, err):
@@ -126,29 +123,30 @@ ctx = getcontext()
 ctx.prec = 12
 
 # Settings
-agent_params = pd.read_pickle('settings.pkl').to_dict('records')
+# agent_params = pd.read_pickle('settings.pkl').to_dict('records')
 
-# agent_params = [
-#     {'pair': 'btcusdt',
-#      'tf': '1m',
-#      'bias_lb': 450,  # long-term ema trend for bullish/bearish bias
-#      'bias_roc_lb': 8,  # lookback for judging if the long-term ema is moving up or down
-#      'source': 'vwap',  # timeseries source for trend_rate calculation
-#      'bars': 10,  # lookback for the ROC that is applied to the source in trend_rate
-#      'mult': 9,  # bars * mult gives the lookback window for finding the rolling mean and stdev of the ROC series
-#      'z': 2,  # z-score that the threshold is set to, to decide what is True or False in trend_rate
-#      'width': 5  # for a high/low to qualify as a williams fractal, it must be the highest/lowest of this many bars
-#      }
-# ]
+agent_params = [
+    {'pair': 'btcusdt',
+     'tf': '1m',
+     'bias_lb': 450,  # long-term ema trend for bullish/bearish bias
+     'bias_roc_lb': 8,  # lookback for judging if the long-term ema is moving up or down
+     'source': 'vwap',  # timeseries source for trend_rate calculation
+     'bars': 10,  # lookback for the ROC that is applied to the source in trend_rate
+     'mult': 9,  # bars * mult gives the lookback window for finding the rolling mean and stdev of the ROC series
+     'z': 2,  # z-score that the threshold is set to, to decide what is True or False in trend_rate
+     'width': 5  # for a high/low to qualify as a williams fractal, it must be the highest/lowest of this many bars
+     }
+]
 
 live = False
 
 # Run Program
-agents = {f"{params['pair']}@kline_{params['tf']}_{x:02}": Agent(params, live) for x, params in enumerate(agent_params)}
+print(f"Started at {datetime.datetime.now().strftime('%d/%m/%y %H:%M')}\n")
+agents = {f"{params['pair'].lower()}@kline_{params['tf']}_{x:02}": Agent(params, live) for x, params in enumerate(agent_params)}
 # print('agents:')
 # pprint(agents)
 
-streams_list = list(set([(f"{agent['pair']}@kline_{agent['tf']}", agent['pair'], agent['tf']) for agent in agent_params]))
+streams_list = list(set([(f"{agent['pair'].lower()}@kline_{agent['tf']}", agent['pair'].lower(), agent['tf']) for agent in agent_params]))
 ws_feed = build_feed(streams_list, live)
 print(ws_feed)
 

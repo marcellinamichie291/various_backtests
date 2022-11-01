@@ -652,8 +652,8 @@ if __name__ == '__main__':
 
     t_type = 'trend'  # trend type ('trend' or 'breakout')
 
-    timeframes = {'5min': 5, '15min': 15, '30min': 30, '1h': 60}
-    # timeframes = {'15min': 15}
+    # timeframes = {'5min': 5, '15min': 15, '30min': 30, '1h': 60}
+    timeframes = {'5min': 5}
     tr_sources = ['close', 'vwma']
     # tr_sources = ['close']
     z_scores = [1, 1.5, 2, 2.5, 3]
@@ -664,8 +664,8 @@ if __name__ == '__main__':
     # mults = [9]
     windows = [200, 400, 600, 800, 1000]
     # windows = [600]
-    lookbacks = range(2, 15, 3)
-    # lookbacks = [8]
+    # lookbacks = range(2, 15, 3)
+    lookbacks = [8]
     # wf_widths = [3, 5, 7]
     wf_widths = [3, 5]
 

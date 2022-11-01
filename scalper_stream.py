@@ -42,7 +42,7 @@ class Ohlc_Stream():
         self.prices = [self.latest['open'], self.latest['high'], self.latest['low']]
         self.volumes = [0] * 3
 
-        print('init stream:', self.id, self.pair, self.timeframe, self.max_lb)
+        print('init stream:', self.pair, self.timeframe, self.max_lb)
 
     def preload_ohlc(self, pair, timeframe):
         tf = {'1m': Client.KLINE_INTERVAL_1MINUTE,
