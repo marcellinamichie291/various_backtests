@@ -52,8 +52,8 @@ class Agent():
     def inside_bars(self):
         self.df['inside_bar'] = (self.df.high < self.df.high.shift(1)) & (self.df.low > self.df.low.shift(1))
         last_idx = self.df.index[-1]
-        if self.df.at[last_idx, 'inside_bar']:
-            print(f"{self.stream} inside bar detected. {datetime.datetime.now().strftime('%d/%m/%y %H:%M')}")
+        # if self.df.at[last_idx, 'inside_bar']:
+        #     print(f"{self.stream} inside bar detected. {datetime.datetime.now().strftime('%d/%m/%y %H:%M')}")
 
     def ema_trend(self):
         length = self.bias_lb
@@ -141,7 +141,7 @@ class Agent():
         else:
             signal = 'no signal'
 
-        print(f"{ib}, {eu}, {tu}, {ih}, {il}, {signal}")
+        print(f"{ib}, {eu}, {tu}, {ih}, {il}, {self.pair} {self.timeframe} {signal}")
 
         if last['long_signal']:
             now = datetime.datetime.now().strftime('%d/%m/%y %H:%M')
