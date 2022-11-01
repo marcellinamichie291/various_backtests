@@ -156,7 +156,7 @@ agent_params = [
      'z': 1,  # z-score that the threshold is set to, to decide what is True or False in trend_rate
      'width': 3  # for a high/low to qualify as a williams fractal, it must be the highest/lowest of this many bars
      },
-    {'pair': 'dogeusdt',
+    {'pair': 'xrpusdt',
      'tf': '1m',
      'bias_lb': 200,  # long-term ema trend for bullish/bearish bias
      'bias_roc_lb': 8,  # lookback for judging if the long-term ema is moving up or down
@@ -166,7 +166,7 @@ agent_params = [
      'z': 1,  # z-score that the threshold is set to, to decide what is True or False in trend_rate
      'width': 3  # for a high/low to qualify as a williams fractal, it must be the highest/lowest of this many bars
      },
-    {'pair': 'shibusdt',
+    {'pair': 'solusdt',
      'tf': '1m',
      'bias_lb': 200,  # long-term ema trend for bullish/bearish bias
      'bias_roc_lb': 8,  # lookback for judging if the long-term ema is moving up or down
