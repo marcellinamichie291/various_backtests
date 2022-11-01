@@ -2,7 +2,7 @@ import datetime
 import keys
 import pandas as pd
 from binance import Client
-from pushbullet import Pushbullet as pb
+from pushbullet import Pushbullet
 from decimal import Decimal, getcontext
 import json
 import websocket
@@ -18,6 +18,7 @@ import time
 from pprint import pprint, pformat
 from unicorn_binance_websocket_api.manager import BinanceWebSocketApiManager
 
+pb = Pushbullet('o.H4ZkitbaJgqx9vxo5kL2MMwnlANcloxT')
 
 class Agent():
 
@@ -102,12 +103,6 @@ class Agent():
         self.df['short_signal'] = (self.df.inside_bar & self.df.trend_up &
                                    self.df.ema_down & (self.df.inval_high > self.df.high))
 
-        last_idx = self.df.index[-1]
-        if self.df.at[last_idx, 'long_signal']:
-            print(f"{self.name} long signal generated. {datetime.datetime.now().strftime('%d/%m/%y %H:%M')}")
-        if self.df.at[last_idx, 'short_signal']:
-            print(f"{self.name} short signal generated. {datetime.datetime.now().strftime('%d/%m/%y %H:%M')}")
-
     def run_calcs(self, data, ohlc_data):
         # print(1)
         self.make_dataframe(ohlc_data)
@@ -124,34 +119,18 @@ class Agent():
         # print(7)
 
         last = self.df.to_dict('records')[-1]
-        ib = 'inside bar' if last['inside_bar'] else 'no inside bar'
-        eu = 'long ema' if last['ema_up'] else 'short ema'
-        if last['trend_up']:
-            tu = 'short trend'
-        elif last['trend_down']:
-            tu = 'long trend'
-        else:
-            tu = 'no trend'
-        il = 'long inval ok' if last['inval_low'] < last['low'] else 'no long inval'
-        ih = 'short inval ok' if last['inval_high'] > last['high'] else 'no short inval'
-        if last['long_signal']:
-            signal = 'long signal'
-        elif last['short_signal']:
-            signal = 'short signal'
-        else:
-            signal = 'no signal'
 
-        print(f"{ib}, {eu}, {tu}, {ih}, {il}, {self.pair} {self.timeframe} {signal}")
+        price = last['open']
+        invalidation = last['inval_low']
+        vol_delta = 'positive vol delta' if last['vol_delta'] > 0 else 'negative vol delta'
 
         if last['long_signal']:
             now = datetime.datetime.now().strftime('%d/%m/%y %H:%M')
-            note = (f"{self.pair} {self.timeframe} long signal, "
-                    f"invalidation: {last['inval_low']}, {last['vol_delta'] = }")
+            note = f"{self.pair} {self.timeframe} long signal @ ${price}, {invalidation = }, {vol_delta}"
             print(now, note)
             pb.push_note(title=now, body=note)
         if last['short_signal']:
             now = datetime.datetime.now().strftime('%d/%m/%y %H:%M')
-            note = (f"{self.pair} {self.timeframe} short signal, "
-                    f"invalidation: {last['inval_high']}, {last['vol_delta'] = }")
+            note = f"{self.pair} {self.timeframe} short signal @ ${price}, {invalidation = }, {vol_delta}"
             print(now, note)
             pb.push_note(title=now, body=note)

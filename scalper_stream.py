@@ -2,7 +2,7 @@ import datetime
 import keys
 import pandas as pd
 from binance import Client
-from pushbullet import Pushbullet as pb
+from pushbullet import Pushbullet
 from decimal import Decimal, getcontext
 import json
 import websocket
@@ -18,6 +18,7 @@ import time
 from pprint import pprint, pformat
 from unicorn_binance_websocket_api.manager import BinanceWebSocketApiManager
 
+pb = Pushbullet('o.H4ZkitbaJgqx9vxo5kL2MMwnlANcloxT')
 
 def volume_delta(msg):
     volume = float(msg['k']['q'])
