@@ -347,6 +347,7 @@ def calc_dd(group, direction):
 
 
 def test_frac_swing(df):
+    # calculate R and invalidation for each signal
     df['long_shift'] = df.long_signal.shift(1, fill_value=False)
     df['long_r'] = ((df.open - df.inval_low) / df.open).clip(lower=0.00001)
     df['long_inval'] = df.inval_low
@@ -355,6 +356,7 @@ def test_frac_swing(df):
     df['short_r'] = ((df.open - df.inval_high) / df.open).clip(lower=0.00001)
     df['short_inval'] = df.inval_high
 
+    # map out trades by trailing stops using the inval columns
     in_long, long_idx, long_stop, long_stops = False, [], np.nan, []
     in_short, short_idx, short_stop, short_stops = False, [], np.nan, []
 
@@ -388,16 +390,19 @@ def test_frac_swing(df):
         else:
             short_stops.append(np.nan)
 
+    # put trade data back into dataframe
     df['in_long'] = long_idx
     df['long_stops'] = long_stops
     df['in_short'] = short_idx
     df['short_stops'] = short_stops
 
+    # initialise pnl columns
     df['long_pnls'] = np.nan
     df['long_pnl_evo'] = np.nan
     df['short_pnls'] = np.nan
     df['short_pnl_evo'] = np.nan
 
+    # groupby individual trades
     longs = df.groupby(df.in_long.diff().loc[df.in_long].cumsum())
     shorts = df.groupby(df.in_short.diff().loc[df.in_short].cumsum())
 
