@@ -37,6 +37,7 @@ class Agent():
         self.name = f"{self.pair}_{self.timeframe}_{self.bias_lb}_{self.source}_{self.bars}_{self.mult}_{self.z}_{self.width}"
         self.position = 0
         self.inval = None
+        self.entry = None
 
         if live:
             self.client = Client(api_key=keys.bPkey, api_secret=keys.bSkey)
@@ -105,17 +106,23 @@ class Agent():
         self.df['short_signal'] = self.df.inside_bar & self.df.trend_up & self.df.ema_down
         self.df['short_entry_inval'] = self.df.high.shift(1).rolling(2).max()
 
-    def open_trade(self):
-        last = self.df.to_dict('records')[-1]
+    def open_trade(self, last):
 
-        price = last['open']
-        long_inval = min(last['inval_low'], last['long_entry_inval'])
-        short_inval = max(last['inval_high'], last['short_entry_inval'])
+        if last.has_key('inval_low'):
+            long_inval = min(last['inval_low'], last['long_entry_inval'])
+        else:
+            long_inval = last['long_entry_inval']
+        if last.has_key('inval_high'):
+            short_inval = max(last['inval_high'], last['short_entry_inval'])
+        else:
+            short_inval = last['short_entry_inval']
+
         vol_delta = 'positive vol delta' if last['vol_delta'] > 0 else 'negative vol delta'
-
+        price = last['close']
         if last['long_signal']:
             self.position = 1
             self.inval = long_inval
+            self.entry = price
             now = datetime.datetime.now().strftime('%d/%m/%y %H:%M')
             note = f"{self.pair} {self.timeframe} long signal @ ${price}, {long_inval = }, {vol_delta}"
             print(now, note)
@@ -123,6 +130,7 @@ class Agent():
         if last['short_signal']:
             self.position = -1
             self.inval = short_inval
+            self.entry = price
             now = datetime.datetime.now().strftime('%d/%m/%y %H:%M')
             note = f"{self.pair} {self.timeframe} short signal @ ${price}, {short_inval = }, {vol_delta}"
             print(now, note)
@@ -139,22 +147,28 @@ class Agent():
         last_idx = self.df.index[-1]
         if self.position > 0:
             new_inval = self.df.at[last_idx, 'inval_low']
-            updated_inval = min(self.inval, new_inval)
-            if updated_inval > self.df.at[last_idx, 'low']:
-                print(f"{self.pair} {self.timeframe} long stopped out")
-            return updated_inval
+            if self.inval < new_inval:
+                print(f'moved {self.pair} stop up')
+            return min(self.inval, new_inval)
         elif self.position < 0:
             new_inval = self.df.at[last_idx, 'inval_high']
-            updated_inval = max(self.inval, new_inval)
-            if updated_inval < self.df.at[last_idx, 'high']:
-                print(f"{self.pair} {self.timeframe} short stopped out")
-            return updated_inval
+            if self.inval > new_inval:
+                print(f'moved {self.pair} stop down')
+            return max(self.inval, new_inval)
+
+    def stopped(self, last):
+        """this will probably need to be rewritten when its actually live, to check the exchange for stop orders"""
+        if self.position > 0:
+            return last['close'] < self.inval
+        elif self.position < 0:
+            return last['close'] > self.inval
 
     def run_calcs(self, data, ohlc_data):
         # print(1)
         self.make_dataframe(ohlc_data)
+        last = self.df.to_dict('records')[-1]
         # print(2)
-        if self.position == 0:
+        if self.position == 0: # check for entry signals
             self.inside_bars()
             # print(3)
             self.ema_trend()
@@ -165,13 +179,22 @@ class Agent():
             # print(6)
             self.entry_signals()
             # print(7)
-            self.open_trade()
+            self.open_trade(last)
             # print(8
-        else:
-            # check if position has stopped out
-            self.inval = self.trail_stop('fractals')
-            print(9)
+        else: # manage position
             pos = 'long' if self.position > 0 else 'short'
-            last_idx = self.df.index[-1]
-            dist = (self.df.at[last_idx, 'close'] - self.inval) / self.df.at[last_idx, 'close']
-            print(f"{self.pair} {self.timeframe} currently in {pos} position, {dist:.3%} from trailing stop")
+            if self.stopped(last):
+                if pos == 'long':
+                    pnl = (last['close'] - self.entry) / self.entry
+                else:
+                    pnl = (self.entry - last['close']) / self.entry
+                r = abs(self.entry - self.inval) / self.entry
+                print(f"{self.pair} {self.timeframe} {pos} stopped out @ {pnl:.3%} PnL ({pnl/r:.1})R")
+                self.position = 0
+                self.inval = None
+                self.entry = None
+            else:
+                self.inval = self.trail_stop('fractals')
+                last_idx = self.df.index[-1]
+                dist = (self.df.at[last_idx, 'close'] - self.inval) / self.df.at[last_idx, 'close']
+                print(f"{self.pair} {self.timeframe} currently in {pos} position, {dist:.3%} from trailing stop")

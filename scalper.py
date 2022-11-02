@@ -9,6 +9,7 @@ import numpy as np
 from binance import Client
 from scalper_agent import Agent
 from scalper_stream import Ohlc_Stream
+from scalper_market import Market
 from pathlib import Path
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -46,6 +47,7 @@ def on_close(ws, close_status_code, close_msg):
 def on_message(ws, msg):
     start = time.perf_counter()
     details = parse_msg(msg)
+    pair = details['data']['s'] # this is to identify which market object to interact with
     stream = streams[details['stream']]
     stream.prices.append(details['price'])
     stream.volumes.append(details['volume'])
@@ -179,6 +181,8 @@ agents = {f"{params['pair'].lower()}@kline_{params['tf']}_{x:02}": Agent(params,
 streams_list = list(set([(f"{agent['pair'].lower()}@kline_{agent['tf']}", agent['pair'].lower(), agent['tf']) for agent in agent_params]))
 ws_feed = build_feed(streams_list, live)
 print(ws_feed)
+
+markets = [{'stream[1]': Market(stream[1])} for stream in streams_list]
 
 streams = init_streams(streams_list, agents, live)
 # print('streams:')
